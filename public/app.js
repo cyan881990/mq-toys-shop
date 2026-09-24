@@ -74,6 +74,9 @@
     $('#footerDesc').textContent = state.db.shop.description;
     $('#footerLoc').textContent = state.db.shop.location;
     $('#shopeeLink').href = state.db.shop.shopee;
+    const sl2 = $('#shopeeLink2'); if (sl2) sl2.href = state.db.shop.shopee;
+    const zalo = state.db.shop.zalo; 
+    if (zalo) { const zb = $('#zaloBtn'); if (zb) { zb.href = 'https://zalo.me/' + zalo.replace(/\D/g, ''); } }
     $('#year').textContent = new Date().getFullYear();
     state.db.vouchers = state.db.vouchers || [];
     if (!state.voucher) state.voucher = defaultVoucher();
@@ -112,7 +115,7 @@
     const newest = productsOf(catById('271399347') || { items: [] }).slice(0, 10);
     const sale = productsOf(catById('271083241') || { items: [] });
     const catImg = c => (productsOf(c)[0] || {}).images?.[0] || '';
-    app.innerHTML = `
+    app.innerHTML = `<div class="shop-layout">${sidebar('', '', 0, 0)}<section>
       <section class="hero">
         <div class="hero__main">
           <h1>Đồ chơi lắp ráp, mô hình &amp; thẻ bài<br>cho bé thỏa sức sáng tạo 🎉</h1>
@@ -130,7 +133,9 @@
         <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="#/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
       ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="#/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
       <section class="section"><div class="section__head"><h2>🏆 Bán chạy nhất</h2></div><div class="grid">${best.map(card).join('')}</div></section>
-      ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="#/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}`;
+      ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="#/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}
+      </section></div>`;
+    bindSidebar();
   }
 
   function sidebar(activeSlug, q, priceMin, priceMax) {
@@ -150,6 +155,20 @@
       <ul class="side-stars">${[5, 4, 3].map(n => `<li><a href="#" data-star="${n}">${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n < 5 ? 'trở lên' : ''}</a></li>`).join('')}</ul>
       <a class="side-reset" href="#/tat-ca">↺ Xoá tất cả bộ lọc</a>
     </aside>`;
+  }
+
+  function bindSidebar() {
+    const base = () => location.hash.split('?')[0].startsWith('#/danh-muc') || location.hash.split('?')[0].startsWith('#/tim-kiem') || location.hash.split('?')[0].startsWith('#/tat-ca') ? location.hash.split('?')[0] : '#/tat-ca';
+    app.querySelectorAll('.side-stars a').forEach(a => a.onclick = e => {
+      e.preventDefault(); const p = new URLSearchParams(location.hash.split('?')[1] || ''); p.set('star', a.dataset.star); location.hash = base() + '?' + p;
+    });
+    const pf = $('#priceForm');
+    if (pf) pf.onsubmit = e => {
+      e.preventDefault(); const f = new FormData(e.target); const p = new URLSearchParams(location.hash.split('?')[1] || '');
+      f.get('min') ? p.set('min', f.get('min')) : p.delete('min');
+      f.get('max') ? p.set('max', f.get('max')) : p.delete('max');
+      location.hash = base() + (p.toString() ? '?' + p : '');
+    };
   }
 
   function pageCategory(slug, q) {
@@ -177,9 +196,7 @@
       </div>`;
     const setQs = (k, v) => { const base = location.hash.split('?')[0]; const p = new URLSearchParams(location.hash.split('?')[1] || ''); v ? p.set(k, v) : p.delete(k); location.hash = base + (p.toString() ? '?' + p : ''); };
     app.querySelectorAll('.sortbtn').forEach(b => b.onclick = () => setQs('sort', b.dataset.sort));
-    app.querySelectorAll('.side-stars a').forEach(a => a.onclick = e => { e.preventDefault(); setQs('star', a.dataset.star); });
-    $('#priceForm').onsubmit = e => { e.preventDefault(); const f = new FormData(e.target); const base = location.hash.split('?')[0]; const p = new URLSearchParams(location.hash.split('?')[1] || '');
-      f.get('min') ? p.set('min', f.get('min')) : p.delete('min'); f.get('max') ? p.set('max', f.get('max')) : p.delete('max'); location.hash = base + (p.toString() ? '?' + p : ''); };
+    bindSidebar();
     document.querySelectorAll('#catbar a').forEach(a => a.classList.toggle('active', a.dataset.cat === slug));
   }
 

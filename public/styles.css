@@ -308,3 +308,23 @@ input,select,textarea{font:inherit}
 .stock-out{color:var(--danger);font-weight:600}
 .stock-out-box{background:#fee2e2;color:#b91c1c;padding:13px 16px;border-radius:12px;font-weight:500;width:100%}
 @media(max-width:600px){ .vbanner__item{flex-wrap:wrap} .vbanner__copy{margin-left:0} }
+
+/* ===== Nút liên hệ nổi (Zalo / gọi) ===== */
+.contact-fab{position:fixed;right:18px;bottom:18px;z-index:60;display:grid;gap:10px;justify-items:end}
+.contact-fab__btn{display:flex;align-items:center;gap:9px;background:#0068FF;color:#fff;border-radius:999px;padding:10px 16px 10px 12px;font-weight:700;font-size:14px;box-shadow:0 6px 20px rgba(0,104,255,.38);transition:.18s}
+.contact-fab__btn:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(0,104,255,.5)}
+.contact-fab__btn--call{background:var(--grad);box-shadow:0 6px 20px rgba(194,26,158,.35)}
+.contact-fab__btn--call:hover{box-shadow:0 10px 26px rgba(194,26,158,.48)}
+.contact-fab__btn svg{flex:none}
+.contact-fab__btn--zalo{position:relative}
+.contact-fab__btn--zalo::after{content:"";position:absolute;inset:-5px;border-radius:999px;border:2px solid rgba(0,104,255,.45);animation:fabPulse 2.2s infinite}
+@keyframes fabPulse{0%{transform:scale(1);opacity:.8}70%{transform:scale(1.18);opacity:0}100%{opacity:0}}
+@media (max-width:700px){
+  .contact-fab{right:12px;bottom:12px;gap:8px}
+  .contact-fab__label{display:none}
+  .contact-fab__btn{padding:13px;border-radius:50%}
+}
+/* Trang chủ trong bố cục có sidebar */
+.shop-layout .hero{margin-top:0}
+.shop-layout .hero__side{grid-template-columns:1fr}
+@media (min-width:901px) and (max-width:1200px){ .shop-layout .hero{grid-template-columns:1fr} .shop-layout .hero__side{grid-template-columns:repeat(3,1fr)} }

@@ -10,7 +10,9 @@
     shopId: 67689883,
     pageSize: 30,
     delay: 1800,      // nghỉ giữa các lần gọi Shopee (ms) – tránh bị chặn
-    maxPages: 12
+    maxPages: 12,
+    reviewLimit: 20,  // số sản phẩm lấy review mỗi lần chạy
+    reviewPerItem: 30 // số đánh giá mới nhất lấy cho mỗi sản phẩm
   };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const H = { 'x-api-source': 'pc', 'x-requested-with': 'XMLHttpRequest' };
@@ -91,6 +93,33 @@
     return gone;
   }
 
+  /* ---------- Lấy đánh giá mới của khách trên Shopee ---------- */
+  async function fetchReviews(list) {
+    const out = [];
+    for (const t of list) {
+      const url = `/api/v2/item/get_ratings?itemid=${t.item_id}&shopid=${CFG.shopId}&limit=${CFG.reviewPerItem}&offset=0&type=0&filter=0&flag=1&filter_size=0`;
+      const j = await fetch(url, { headers: H }).then(r => r.json()).catch(() => null);
+      const rs = (j && j.data && j.data.ratings) || [];
+      for (const r of rs) {
+        if (!r.comment && !(r.images || []).length) continue;   // bỏ đánh giá trống
+        out.push({
+          item_id: t.item_id,
+          cmt_id: String(r.cmtid),
+          user: r.author_username || '',
+          star: r.rating_star,
+          comment: r.comment || '',
+          variant: (r.product_items || []).map(p => p.model_name).filter(Boolean).join(', '),
+          images: (r.images || []).map(x => 'https://down-vn.img.susercontent.com/file/' + x),
+          reply: (r.ItemRatingReply && r.ItemRatingReply.comment) || '',
+          time: r.ctime
+        });
+      }
+      log(`💬 ${t.name}… <b>${rs.length}</b> đánh giá`);
+      await sleep(CFG.delay);
+    }
+    return out;
+  }
+
   async function run(secret, opts) {
     opts = opts || {};
     ui().querySelector('#mq-sync-body').innerHTML = '';
@@ -118,7 +147,7 @@
 
       log('Đang cập nhật vào website…');
       const res = await rpc('sync_from_shopee', { p_secret: secret, p_items: Object.values(shop), p_missing: missing });
-      log(`✅ Xong: đọc <b>${res.found}</b> · cập nhật <b>${res.updated}</b> · mất link <b>${res.missing}</b>`, '#12a150');
+      log(`✅ Sản phẩm: đọc <b>${res.found}</b> · cập nhật <b>${res.updated}</b> · mất link <b>${res.missing}</b>`, '#12a150');
       (res.changes || []).slice(0, 12).forEach(c => {
         const bits = [];
         if (c.gia_moi) bits.push(`giá ${(c.gia_cu || 0).toLocaleString('vi-VN')}₫ → <b>${c.gia_moi.toLocaleString('vi-VN')}₫</b>`);
@@ -128,6 +157,25 @@
         log(`• ${c.ten}…<br><span style="color:#6F6577">${bits.join(' · ')}</span>`);
       });
       if (res.missing) log('👉 Vào Admin → Đồng bộ Shopee để gán lại link cho sản phẩm mất.', '#b8860b');
+
+      /* ----- Đồng bộ đánh giá: chỉ lấy sản phẩm có đánh giá mới ----- */
+      if (opts.skipReviews !== true) {
+        const need = targets
+          .filter(t => shop[t.item_id] && (shop[t.item_id].rating_count || 0) > (t.reviews || 0))
+          .sort((a, b) => ((shop[b.item_id].rating_count || 0) - (b.reviews || 0)) - ((shop[a.item_id].rating_count || 0) - (a.reviews || 0)))
+          .slice(0, CFG.reviewLimit);
+        if (!need.length) { log('💬 Không có đánh giá mới.'); }
+        else {
+          log(`💬 Đang lấy đánh giá mới của <b>${need.length}</b> sản phẩm…`);
+          const reviews = await fetchReviews(need);
+          if (reviews.length) {
+            const rv = await rpc('sync_reviews', { p_secret: secret, p_reviews: reviews });
+            log(`✅ Đánh giá: thêm mới <b>${rv.new}</b> · cập nhật <b>${rv.updated}</b>`, '#12a150');
+            res.reviews = rv;
+          } else log('💬 Không có đánh giá nào có nội dung.');
+        }
+      }
+      log('🎉 Hoàn tất đồng bộ!', '#12a150');
       return res;
     } catch (e) {
       log('❌ ' + e.message, '#c0392b');
