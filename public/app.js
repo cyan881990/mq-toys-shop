@@ -95,6 +95,7 @@
   function card(p) {
     return `<article class="card${soldOut(p) ? ' card--out' : ''}">
       ${soldOut(p) ? '<span class="soldout">HẾT HÀNG</span>' : ''}
+      ${p.video ? '<span class="has-video" title="Có video sản phẩm">▶ Video</span>' : ''}
       ${p.discount ? `<span class="discount">-${p.discount}%</span>` : ''}
       <a href="/san-pham/${p.slug}"><img class="card__img" src="${p.images[0]}" alt="${esc(p.name)}" loading="lazy"></a>
       <div class="card__body">
@@ -215,8 +216,17 @@
     app.innerHTML = crumb([cat ? `<a href="/danh-muc/${cat.slug}">${esc(cat.name)}</a>` : '', esc(p.name.slice(0, 60)) + '…'].filter(Boolean)) + `
       <div class="pd">
         <div class="gallery">
-          <div class="gallery__main" id="galMain"><img src="${p.images[0]}" alt="${esc(p.name)}"></div>
-          <div class="gallery__thumbs" id="galThumbs">${p.images.map((s, i) => `<img src="${s}" class="${i === 0 ? 'active' : ''}" data-i="${i}" alt="">`).join('')}</div>
+          <div class="gallery__main" id="galMain">
+            <img src="${p.images[0]}" alt="${esc(p.name)}">
+            ${p.video ? `<div class="vplayer" id="vPlayer" hidden>
+              <video id="vTag" playsinline controls preload="none" poster="${esc(p.video.thumb || p.images[0])}"></video>
+              <div class="vplayer__load" id="vLoad" hidden><span class="spin"></span> Đang tải video…</div>
+            </div>` : ''}
+          </div>
+          <div class="gallery__thumbs" id="galThumbs">
+            ${p.video ? `<button class="thumb-video" data-video="1" title="Xem video sản phẩm"><img src="${esc(p.video.thumb || p.images[0])}" alt="Video"><span class="thumb-video__play">▶</span>${p.video.duration ? `<span class="thumb-video__dur">${Math.floor(p.video.duration / 60)}:${String(p.video.duration % 60).padStart(2, '0')}</span>` : ''}</button>` : ''}
+            ${p.images.map((s, i) => `<img src="${s}" class="${i === 0 && !p.video ? 'active' : ''}" data-i="${i}" alt="">`).join('')}
+          </div>
         </div>
         <div>
           <h1>${esc(p.name)}</h1>
@@ -256,8 +266,42 @@
 
     // gallery
     const main = $('#galMain img');
-    $('#galThumbs').onclick = e => { const t = e.target.closest('img'); if (!t) return; imgIdx = +t.dataset.i; main.src = p.images[imgIdx]; document.querySelectorAll('#galThumbs img').forEach(x => x.classList.toggle('active', x === t)); };
-    $('#galMain').onclick = () => lightbox(main.src);
+    const showImage = t => {
+      imgIdx = +t.dataset.i; main.src = p.images[imgIdx]; main.hidden = false;
+      const vp = $('#vPlayer'); if (vp) { vp.hidden = true; const vt = $('#vTag'); if (vt) vt.pause(); }
+      document.querySelectorAll('#galThumbs img,#galThumbs .thumb-video').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    };
+    $('#galThumbs').onclick = e => {
+      const vb = e.target.closest('[data-video]');
+      if (vb) { openVideo(vb); return; }
+      const t = e.target.closest('img'); if (!t || t.closest('[data-video]')) return; showImage(t);
+    };
+    $('#galMain').onclick = e => { if (e.target.closest('.vplayer')) return; lightbox(main.src); };
+
+    function openVideo(btn) {
+      const vp = $('#vPlayer'), v = $('#vTag'), ld = $('#vLoad');
+      document.querySelectorAll('#galThumbs img,#galThumbs .thumb-video').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      main.hidden = true; vp.hidden = false;
+      if (v.dataset.ready) { v.play().catch(() => {}); return; }
+      v.src = p.video.url; v.load();
+      // Nếu CDN Shopee chặn phát trực tiếp thì tải về rồi phát
+      let fixed = false;
+      const fallback = async () => {
+        if (fixed || v.readyState >= 1) return; fixed = true;
+        ld.hidden = false;
+        try {
+          const blob = await fetch(p.video.url).then(r => r.blob());
+          v.src = URL.createObjectURL(blob); v.load(); await v.play().catch(() => {});
+        } catch (e) { ld.innerHTML = 'Không tải được video. <a href="' + esc(p.shopeeUrl || '#') + '" target="_blank" rel="noopener">Xem trên Shopee</a>'; return; }
+        ld.hidden = true;
+      };
+      v.onloadeddata = () => { v.dataset.ready = '1'; ld.hidden = true; };
+      v.onerror = fallback;
+      setTimeout(fallback, 2500);
+      v.play().catch(() => {});
+    }
     // variants
     const chips = document.querySelectorAll('[data-variant] .chip');
     chips.forEach(ch => { if (ch.dataset.opt === selected) ch.classList.add('active'); ch.onclick = () => {

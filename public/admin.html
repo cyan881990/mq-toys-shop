@@ -308,22 +308,31 @@ window.exportCsv=async()=>{
 
 V.products=async(q={})=>{
   if(!SB) return '<h1>Sản phẩm</h1><p class="sub">Chức năng này cần Supabase. Khi chạy server.js, sửa trực tiếp data/products.json.</p>';
-  let p='products?select=id,name,slug,price,price_before,discount,stock,sold,is_active,shopee_status,shopee_url,shopee_synced_at,product_images(url,sort_order)&order=shopee_status.desc,sold.desc&limit=300';
+  let p='products?select=id,name,slug,price,price_before,discount,stock,sold,is_active,shopee_status,shopee_url,shopee_synced_at,video_url,video_thumb,product_images(url,sort_order)&order=shopee_status.desc,sold.desc&limit=300';
   if(q.s) p+=`&name=ilike.*${encodeURIComponent(q.s)}*`;
   const list=await sb(p); const nMiss=list.filter(x=>x.shopee_status==='missing').length;
   return `<h1>Sản phẩm</h1><p class="sub">${list.length} sản phẩm · sửa giá/tồn kho rồi bấm ra ngoài ô để lưu · tồn kho trống = không giới hạn${nMiss?` · <b style="color:var(--danger)">${nMiss} sản phẩm mất link Shopee</b>`:''}</p>
     <div class="bar"><input id="pS" placeholder="🔍 Tìm tên sản phẩm" value="${esc(q.s||'')}" style="min-width:260px"><button class="btn btn--sm" onclick="show('products',{s:$('#pS').value})">Tìm</button><button class="btn btn--ghost btn--sm" onclick="show('products')">Xoá lọc</button></div>
-    <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Tên sản phẩm</th><th>Shopee</th><th>Giá bán</th><th>Giá gốc</th><th>Tồn kho</th><th>Đã bán</th><th>Hiện</th></tr>
+    <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Tên sản phẩm</th><th>Shopee</th><th>Video</th><th>Giá bán</th><th>Giá gốc</th><th>Tồn kho</th><th>Đã bán</th><th>Hiện</th></tr>
     ${list.map(x=>{const im=(x.product_images||[]).sort((a,b)=>a.sort_order-b.sort_order)[0];const cids=(x.product_categories||[]).map(c=>c.category_id);
       return `<tr class="${x.is_active?'':'row-hidden'}">
       <td><img class="thumb" src="${img(im&&im.url)}" onclick="zoom(this.src)" style="cursor:zoom-in"></td>
-      <td><a href="/#/san-pham/${x.slug}" target="_blank">${esc(x.name)}</a><div class="sm">${x.id}</div></td>
+      <td><a href="/san-pham/${x.slug}" target="_blank">${esc(x.name)}</a><div class="sm">${x.id}</div></td>
       <td>${shopeeBadge(x)}</td>
+      <td>${x.video_url
+        ? `<a href="${esc(x.video_url)}" target="_blank" style="color:#12a150;font-weight:600;font-size:12.5px">🎬 Có video</a><div class="sm"><a href="#" onclick="setVideo('${x.id}','${esc(x.video_url)}');return false">sửa</a> · <a href="#" onclick="setVideo('${x.id}','');return false">xoá</a></div>`
+        : `<a href="#" onclick="setVideo('${x.id}','');return false" class="sm">+ Thêm video</a>`}</td>
       <td><input type="number" value="${x.price}" onchange="upd('${x.id}',{price:+this.value})"></td>
       <td><input type="number" value="${x.price_before||''}" placeholder="—" onchange="upd('${x.id}',{price_before:this.value?+this.value:null,discount:this.value?Math.round((1-${x.price}/+this.value)*100):0})"></td>
       <td><input type="number" value="${x.stock??''}" placeholder="∞" style="${x.stock===0?'border-color:var(--danger);background:#fee2e2':(x.stock!==null&&x.stock<=5?'border-color:#d97706;background:#fff7ed':'')}" onchange="upd('${x.id}',{stock:this.value===''?null:+this.value})"></td>
       <td>${x.sold}</td>
       <td><input type="checkbox" ${x.is_active?'checked':''} onchange="upd('${x.id}',{is_active:this.checked})"></td></tr>`;}).join('')}</table></div>`;
+};
+window.setVideo=async(id,cur)=>{
+  const url=prompt('Dán link video (mp4 hoặc link Shopee cvf.shopee.vn/file/...). Để trống để xoá video:',cur||'');
+  if(url===null) return;
+  try{ await sb('rpc/set_product_video',{method:'POST',body:JSON.stringify({p_product_id:id,p_url:url,p_thumb:null})});
+    toast(url.trim()?'Đã lưu video':'Đã xoá video'); show('products'); }catch(e){ toast('❌ '+e.message); }
 };
 window.upd=async(id,body)=>{try{await sb(`products?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu');}catch(e){toast('❌ '+e.message);}};
 

@@ -12,7 +12,8 @@
     delay: 1800,      // nghỉ giữa các lần gọi Shopee (ms) – tránh bị chặn
     maxPages: 12,
     reviewLimit: 20,  // số sản phẩm lấy review mỗi lần chạy
-    reviewPerItem: 30 // số đánh giá mới nhất lấy cho mỗi sản phẩm
+    reviewPerItem: 30,// số đánh giá mới nhất lấy cho mỗi sản phẩm
+    videoLimit: 25    // số sản phẩm dò video mỗi lần chạy
   };
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const H = { 'x-api-source': 'pc', 'x-requested-with': 'XMLHttpRequest' };
@@ -120,6 +121,28 @@
     return out;
   }
 
+  /* ---------- Lấy video sản phẩm trên Shopee ---------- */
+  async function fetchVideos(list) {
+    const out = [];
+    for (const t of list) {
+      const j = await fetch(`/api/v4/pdp/get_pc?item_id=${t.item_id}&shop_id=${CFG.shopId}`, { headers: H }).then(r => r.json()).catch(() => null);
+      const v = j && j.data && j.data.product_images && j.data.product_images.video;
+      if (v && v.vid) {
+        out.push({
+          item_id: t.item_id,
+          url: 'https://cvf.shopee.vn/file/' + v.vid,
+          thumb: v.thumb_url ? 'https://down-vn.img.susercontent.com/file/' + v.thumb_url : '',
+          duration: v.duration || null
+        });
+        log(`🎬 ${t.name}… <b>có video</b>`, '#12a150');
+      } else {
+        out.push({ item_id: t.item_id, url: null });   // đánh dấu đã kiểm tra
+      }
+      await sleep(CFG.delay);
+    }
+    return out;
+  }
+
   async function run(secret, opts) {
     opts = opts || {};
     ui().querySelector('#mq-sync-body').innerHTML = '';
@@ -175,6 +198,22 @@
           } else log('💬 Không có đánh giá nào có nội dung.');
         }
       }
+      /* ----- Đồng bộ video: ưu tiên sản phẩm chưa kiểm tra bao giờ ----- */
+      if (opts.skipVideos !== true) {
+        const needV = targets
+          .filter(t => shop[t.item_id])
+          .sort((a, b) => (a.video_checked ? 1 : 0) - (b.video_checked ? 1 : 0))
+          .slice(0, CFG.videoLimit);
+        if (!needV.length) log('🎬 Không có sản phẩm nào cần dò video.');
+        else {
+          log(`🎬 Đang dò video của <b>${needV.length}</b> sản phẩm…`);
+          const vids = await fetchVideos(needV);
+          const vr = await rpc('sync_videos', { p_secret: secret, p_videos: vids });
+          log(`✅ Video: có <b>${vr.with_video}</b> · không có <b>${vr.without}</b>`, '#12a150');
+          res.videos = vr;
+        }
+      }
+
       log('🎉 Hoàn tất đồng bộ!', '#12a150');
       return res;
     } catch (e) {
@@ -183,6 +222,6 @@
     }
   }
 
-  window.MQSync = { run, CFG, version: 1 };
+  window.MQSync = { run, CFG, version: 2 };
   console.log('%c[MQSync] Sẵn sàng – chạy: MQSync.run("KHOA_DONG_BO")', 'color:#ED1C8E;font-weight:bold');
 })();
