@@ -1,0 +1,5 @@
+node_modules/
+data/orders.json
+public/img/
+.DS_Store
+*.log
