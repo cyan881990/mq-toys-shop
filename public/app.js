@@ -285,22 +285,28 @@
       btn.classList.add('active');
       main.hidden = true; vp.hidden = false;
       if (v.dataset.ready) { v.play().catch(() => {}); return; }
-      v.src = p.video.url; v.load();
-      // Nếu CDN Shopee chặn phát trực tiếp thì tải về rồi phát
-      let fixed = false;
+
+      const shopee = p.shopeeUrl ? ` <a href="${esc(p.shopeeUrl)}" target="_blank" rel="noopener">Xem trên Shopee</a>` : '';
+      const ready = () => { v.dataset.ready = '1'; ld.hidden = true; };
+      const busy = () => { ld.innerHTML = '<span class="spin"></span> Đang tải video…'; ld.hidden = false; };
+      const fail = () => { ld.innerHTML = 'Không tải được video.' + shopee; ld.hidden = false; };
+
+      v.onloadeddata = ready;
+      busy();
+      v.src = p.video.url; v.load(); v.play().catch(() => {});
+
+      // Nếu CDN chặn phát trực tiếp: tải cả file về rồi phát từ bộ nhớ
+      let tried = false;
       const fallback = async () => {
-        if (fixed || v.readyState >= 1) return; fixed = true;
-        ld.hidden = false;
+        if (tried || v.readyState >= 2) return; tried = true;
         try {
-          const blob = await fetch(p.video.url).then(r => r.blob());
-          v.src = URL.createObjectURL(blob); v.load(); await v.play().catch(() => {});
-        } catch (e) { ld.innerHTML = 'Không tải được video. <a href="' + esc(p.shopeeUrl || '#') + '" target="_blank" rel="noopener">Xem trên Shopee</a>'; return; }
-        ld.hidden = true;
+          const blob = await fetch(p.video.url).then(r => { if (!r.ok) throw 0; return r.blob(); });
+          v.src = URL.createObjectURL(blob); v.load(); v.play().catch(() => {});
+          setTimeout(() => { if (v.readyState < 2) fail(); }, 8000);
+        } catch (e) { fail(); }
       };
-      v.onloadeddata = () => { v.dataset.ready = '1'; ld.hidden = true; };
       v.onerror = fallback;
-      setTimeout(fallback, 2500);
-      v.play().catch(() => {});
+      setTimeout(fallback, 6000);
     }
     // variants
     const chips = document.querySelectorAll('[data-variant] .chip');
