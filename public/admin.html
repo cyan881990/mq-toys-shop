@@ -114,6 +114,7 @@
       <button data-v="products">🧸 Sản phẩm</button>
       <button data-v="customers">👥 Khách hàng</button>
       <button data-v="reviews">⭐ Đánh giá</button>
+      <button data-v="sync">🔄 Đồng bộ Shopee</button>
       <button data-v="settings">⚙️ Cài đặt</button>
       <div class="sep"></div>
       <a href="/" target="_blank">🛍️ Xem cửa hàng</a>
@@ -301,24 +302,126 @@ window.exportCsv=async()=>{
 
 V.products=async(q={})=>{
   if(!SB) return '<h1>Sản phẩm</h1><p class="sub">Chức năng này cần Supabase. Khi chạy server.js, sửa trực tiếp data/products.json.</p>';
-  let p='products?select=id,name,slug,price,price_before,discount,stock,sold,is_active,product_images(url,sort_order),product_categories(category_id)&order=sold.desc&limit=300';
+  let p='products?select=id,name,slug,price,price_before,discount,stock,sold,is_active,shopee_status,shopee_url,shopee_synced_at,product_images(url,sort_order)&order=shopee_status.desc,sold.desc&limit=300';
   if(q.s) p+=`&name=ilike.*${encodeURIComponent(q.s)}*`;
-  const list=await sb(p); const cats=await sb('categories?order=sort_order');
-  return `<h1>Sản phẩm</h1><p class="sub">${list.length} sản phẩm · sửa giá/tồn kho rồi bấm ra ngoài ô để lưu · tồn kho trống = không giới hạn</p>
+  const list=await sb(p); const nMiss=list.filter(x=>x.shopee_status==='missing').length;
+  return `<h1>Sản phẩm</h1><p class="sub">${list.length} sản phẩm · sửa giá/tồn kho rồi bấm ra ngoài ô để lưu · tồn kho trống = không giới hạn${nMiss?` · <b style="color:var(--danger)">${nMiss} sản phẩm mất link Shopee</b>`:''}</p>
     <div class="bar"><input id="pS" placeholder="🔍 Tìm tên sản phẩm" value="${esc(q.s||'')}" style="min-width:260px"><button class="btn btn--sm" onclick="show('products',{s:$('#pS').value})">Tìm</button><button class="btn btn--ghost btn--sm" onclick="show('products')">Xoá lọc</button></div>
-    <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Tên sản phẩm</th><th>Giá bán</th><th>Giá gốc</th><th>Tồn kho</th><th>Đã bán</th><th>Danh mục</th><th>Hiện</th></tr>
+    <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Tên sản phẩm</th><th>Shopee</th><th>Giá bán</th><th>Giá gốc</th><th>Tồn kho</th><th>Đã bán</th><th>Hiện</th></tr>
     ${list.map(x=>{const im=(x.product_images||[]).sort((a,b)=>a.sort_order-b.sort_order)[0];const cids=(x.product_categories||[]).map(c=>c.category_id);
       return `<tr class="${x.is_active?'':'row-hidden'}">
       <td><img class="thumb" src="${img(im&&im.url)}" onclick="zoom(this.src)" style="cursor:zoom-in"></td>
       <td><a href="/#/san-pham/${x.slug}" target="_blank">${esc(x.name)}</a><div class="sm">${x.id}</div></td>
+      <td>${shopeeBadge(x)}</td>
       <td><input type="number" value="${x.price}" onchange="upd('${x.id}',{price:+this.value})"></td>
       <td><input type="number" value="${x.price_before||''}" placeholder="—" onchange="upd('${x.id}',{price_before:this.value?+this.value:null,discount:this.value?Math.round((1-${x.price}/+this.value)*100):0})"></td>
       <td><input type="number" value="${x.stock??''}" placeholder="∞" onchange="upd('${x.id}',{stock:this.value===''?null:+this.value})"></td>
       <td>${x.sold}</td>
-      <td class="sm">${cids.map(c=>esc((cats.find(k=>k.id===c)||{}).name||c)).join(', ')}</td>
       <td><input type="checkbox" ${x.is_active?'checked':''} onchange="upd('${x.id}',{is_active:this.checked})"></td></tr>`;}).join('')}</table></div>`;
 };
 window.upd=async(id,body)=>{try{await sb(`products?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu');}catch(e){toast('❌ '+e.message);}};
+
+
+const SHOPEE_BADGE={ok:['✅ Đồng bộ','#12a150'],manual:['✋ Gán tay','#8E1DB0'],missing:['⚠️ Mất link','#d93025'],never:['— Chưa gắn','#6F6577']};
+function shopeeBadge(x){const b=SHOPEE_BADGE[x.shopee_status]||SHOPEE_BADGE.never;
+  const t=x.shopee_synced_at?new Date(x.shopee_synced_at).toLocaleDateString('vi-VN'):'chưa';
+  return `<span style="color:${b[1]};font-weight:600;font-size:12.5px;white-space:nowrap">${b[0]}</span><div class="sm">${x.shopee_url?`<a href="${esc(x.shopee_url)}" target="_blank">mở link</a> · `:''}${t}</div>`;}
+
+V.sync=async()=>{ if(!SB) return '<h1>Đồng bộ Shopee</h1><p class="sub">Cần Supabase.</p>';
+  const st=(await sb('v_sync_status'))[0];
+  const secret=await sb('rpc/get_sync_secret',{method:'POST',body:'{}'});
+  const miss=await sb('products?select=id,name,shopee_item_id,shopee_url,sync_note,product_images(url,sort_order)&shopee_status=eq.missing&order=name');
+  const logs=await sb('sync_log?order=ran_at.desc&limit=8');
+  // Shopee chặn nạp script ngoài (CSP) nên nhúng toàn bộ mã vào bookmarklet
+  const code=await fetch('/sync-shopee.js?v='+Date.now()).then(r=>r.text());
+  window.__SYNC_CODE=code; window.__SYNC_SECRET=secret;
+  const boot='javascript:'+encodeURIComponent(`(function(){${code};MQSync.run(${JSON.stringify(secret)});})()`);
+  return `<h1>Đồng bộ Shopee</h1><p class="sub">Tự lấy giá, tồn kho, tên và ảnh mới nhất từ gian hàng Shopee về website</p>
+    <div class="stats">
+      <div class="stat"><b>${st.ok}</b><span>Sản phẩm đồng bộ tốt</span></div>
+      <div class="stat"><b>${st.missing}</b><span>Mất link Shopee</span></div>
+      <div class="stat"><b>${st.manual}</b><span>Gán link thủ công</span></div>
+      <div class="stat"><b>${st.last_sync?new Date(st.last_sync).toLocaleString('vi-VN',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'chưa'}</b><span>Lần đồng bộ gần nhất</span></div>
+    </div>
+    <div class="panel" style="padding:20px;margin-bottom:18px">
+      <h3 style="margin:0 0 10px">Cách 1 — Bấm 1 nút (khuyên dùng)</h3>
+      <ol style="margin:0 0 12px 18px;padding:0;line-height:1.95;font-size:14px">
+        <li><b>Kéo</b> nút hồng bên dưới <b>lên thanh Bookmark</b> của Chrome (Ctrl+Shift+B để hiện thanh này).</li>
+        <li>Mở <a href="https://shopee.vn/mqhometech" target="_blank">shopee.vn/mqhometech</a> và đăng nhập Shopee.</li>
+        <li>Bấm bookmark vừa tạo → bảng tiến trình hiện ở góc phải, chờ khoảng 30 giây là xong.</li>
+      </ol>
+      <p style="margin:0 0 10px"><a id="bmkLink" href="${boot}"
+        style="display:inline-block;background:var(--grad);color:#fff;padding:11px 22px;border-radius:999px;font-weight:700;cursor:grab;text-decoration:none">⇧ Đồng bộ M&amp;Q Shopee</a>
+        <span class="sm" style="margin-left:10px">← kéo thả nút này lên thanh Bookmark</span></p>
+      <h3 style="margin:18px 0 8px">Cách 2 — Tự động định kỳ</h3>
+      <p style="margin:0 0 10px;font-size:14px">Cài tiện ích <a href="https://www.tampermonkey.net/" target="_blank">Tampermonkey</a> cho Chrome → biểu tượng Tampermonkey → <b>Create a new script</b> → xoá hết, dán nội dung đã sao chép → Ctrl+S. Từ đó mỗi lần bạn mở gian hàng Shopee, website tự đồng bộ (tối đa 6 tiếng một lần).</p>
+      <div class="copyline">
+        <button class="btn btn--ghost btn--sm" onclick="copyText(userscript(),'Đã sao chép userscript – dán vào Tampermonkey')">📋 Sao chép userscript tự động</button>
+        <button class="btn btn--ghost btn--sm" onclick="copyText(document.getElementById('bmkLink').href,'Đã sao chép mã bookmarklet')">📋 Sao chép mã bookmarklet</button>
+        <button class="btn btn--ghost btn--sm" onclick="copyText(window.__SYNC_SECRET,'Đã sao chép khóa đồng bộ')">🔑 Sao chép khóa đồng bộ</button>
+      </div>
+      <p class="sm" style="margin:10px 0 0">⚠️ Khóa đồng bộ là mật khẩu cho phép ghi đè giá sản phẩm — đừng chia sẻ hoặc đăng công khai.</p>
+    </div>
+
+    <h1 style="font-size:17px">Sản phẩm mất link Shopee (${miss.length})</h1>
+    <p class="sub">Sản phẩm không còn trên Shopee. Dán link mới vào ô bên dưới để gắn lại, hoặc ẩn sản phẩm ở trang Sản phẩm.</p>
+    <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Sản phẩm</th><th>Ghi chú</th><th>Dán link Shopee mới</th><th></th></tr>
+      ${miss.map(x=>{const im=(x.product_images||[]).sort((a,b)=>a.sort_order-b.sort_order)[0];
+        return `<tr><td><img class="thumb" src="${img(im&&im.url)}"></td>
+        <td><b>${esc(x.name)}</b><div class="sm">Mã SP ${x.id} · item ${esc(x.shopee_item_id||'—')}</div></td>
+        <td class="sm">${esc(x.sync_note||'')}</td>
+        <td><input id="rl-${x.id}" placeholder="https://shopee.vn/…-i.67689883.123456789" value="${esc(x.shopee_url||'')}"></td>
+        <td><button class="btn btn--sm" onclick="relink('${x.id}')">Gắn lại</button></td></tr>`;}).join('')
+        ||'<tr><td colspan="5" class="sm">🎉 Không có sản phẩm nào mất link.</td></tr>'}</table></div>
+
+    <h1 style="font-size:17px;margin-top:26px">Nhật ký đồng bộ</h1>
+    <div class="panel tbl-scroll"><table><tr><th>Thời gian</th><th>Đọc được</th><th>Cập nhật</th><th>Mất link</th><th>Thay đổi gần nhất</th></tr>
+      ${logs.map(l=>`<tr><td class="sm">${dt(l.ran_at)}</td><td>${l.found}</td><td><b>${l.updated}</b></td><td>${l.missing}</td>
+        <td class="sm">${(l.detail||[]).slice(0,4).map(c=>esc(c.ten)+(c.gia_moi?` → ${(+c.gia_moi).toLocaleString('vi-VN')}₫`:'')).join('<br>')||'—'}</td></tr>`).join('')
+        ||'<tr><td colspan="5" class="sm">Chưa chạy lần nào.</td></tr>'}</table></div>`;
+};
+window.userscript=()=>`// ==UserScript==
+// @name         Dong bo M&Q Toys tu Shopee
+// @namespace    mqhometech
+// @version      1.1
+// @description  Tu cap nhat gia, ton kho, ten va anh tu Shopee ve website mqhometech.com
+// @match        https://shopee.vn/mqhometech*
+// @run-at       document-idle
+// @grant        none
+// ==/UserScript==
+(function(){
+  var KEY=${JSON.stringify(window.__SYNC_SECRET)}, GAP=6*60*60*1000;   // 6 tieng chay 1 lan
+  try{ if(Date.now()-(+(localStorage.getItem('mq_last_sync')||0))<GAP) return; }catch(e){}
+  setTimeout(function(){
+    ${window.__SYNC_CODE}
+    MQSync.run(KEY).then(function(){ try{localStorage.setItem('mq_last_sync',Date.now());}catch(e){} });
+  }, 5000);
+})();`;
+
+window.copyText=(t,msg)=>navigator.clipboard.writeText(t).then(()=>toast(msg)).catch(()=>toast('Không sao chép được'));
+window.relink=async id=>{ const url=document.getElementById('rl-'+id).value.trim();
+  try{ const r=await sb('rpc/relink_shopee',{method:'POST',body:JSON.stringify({p_product_id:id,p_url:url})}); toast('Đã gắn lại link (item '+r.item_id+')'); show('sync'); }
+  catch(e){ toast('❌ '+e.message); } };
+window.userscript=()=>{const sec=document.getElementById('bmk').value.match(/MQSync\.run\('([^']+)'\)/)[1];
+return `// ==UserScript==
+// @name         Đồng bộ M&Q Toys từ Shopee
+// @namespace    mqhometech
+// @version      1.0
+// @description  Tự cập nhật giá, tồn kho, ảnh từ Shopee về website mqhometech.com
+// @match        https://shopee.vn/mqhometech*
+// @grant        none
+// ==/UserScript==
+(function(){
+  var KEY='${sec}', GAP=6*60*60*1000;            // 6 tiếng chạy 1 lần
+  var last=+(localStorage.getItem('mq_last_sync')||0);
+  if(Date.now()-last<GAP) return;
+  setTimeout(function(){
+    var s=document.createElement('script');
+    s.src='${location.origin}/sync-shopee.js?v='+Date.now();
+    s.onload=function(){ MQSync.run(KEY).then(function(){ localStorage.setItem('mq_last_sync',Date.now()); }); };
+    document.body.appendChild(s);
+  }, 4000);
+})();`;};
 
 V.customers=async()=>{ if(!SB) return '<h1>Khách hàng</h1><p class="sub">Cần Supabase.</p>';
   const c=await sb('customers?order=total_spent.desc&limit=300');
