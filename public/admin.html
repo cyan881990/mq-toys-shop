@@ -113,6 +113,7 @@
       <button data-v="orders">📦 Đơn hàng</button>
       <button data-v="products">🧸 Sản phẩm</button>
       <button data-v="customers">👥 Khách hàng</button>
+      <button data-v="vouchers">🎟️ Voucher</button>
       <button data-v="reviews">⭐ Đánh giá</button>
       <button data-v="sync">🔄 Đồng bộ Shopee</button>
       <button data-v="settings">⚙️ Cài đặt</button>
@@ -179,7 +180,11 @@ V.dash=async()=>{
       <div class="stat"><b>${d.customers}</b><span>Khách hàng</span></div>
       <div class="stat"><b>${d.active_products}</b><span>Sản phẩm đang bán</span></div>
       <div class="stat"><b>${d.pending_reviews}</b><span>Đánh giá chờ duyệt</span></div>
+      <div class="stat"><b>${d.out_of_stock??0}</b><span>Sản phẩm hết hàng</span></div>
+      <div class="stat"><b>${d.low_stock??0}</b><span>Sắp hết (≤5)</span></div>
+      <div class="stat"><b>${fmt(d.total_discount||0)}</b><span>Đã giảm giá cho khách</span></div>
     </div>
+    ${await stockAlertHtml()}
     <h1 style="font-size:17px">Đơn hàng gần đây</h1><p class="sub">Bấm vào dòng để xem chi tiết</p>
     <div class="panel tbl-scroll"><table><tr><th>Ảnh</th><th>Mã đơn</th><th>Thời gian</th><th>Khách hàng</th><th>Tổng COD</th><th>Trạng thái</th></tr>
       ${recent.map(o=>rowHtml(o)).join('')||'<tr><td colspan="6" class="sm">Chưa có đơn hàng nào.</td></tr>'}</table></div>`;
@@ -244,6 +249,7 @@ window.openOrder=code=>{
         <div class="ditem__right"><b>${fmt(i.price*i.qty)}</b></div></div>`).join('')}
       <div class="dtotal">
         <div class="dline"><span>Tạm tính</span><span>${fmt(o.subtotal)}</span></div>
+        ${o.discount?`<div class="dline" style="color:var(--ok)"><span>Giảm giá${o.voucher_code?' ('+esc(o.voucher_code)+')':''}</span><span>−${fmt(o.discount)}</span></div>`:''}
         <div class="dline"><span>Phí vận chuyển</span><span>${o.shipping?fmt(o.shipping):'Miễn phí'}</span></div>
         <div class="dline"><span>Tổng thu khi giao (COD)</span><span>${fmt(o.total)}</span></div>
       </div></div>
@@ -315,7 +321,7 @@ V.products=async(q={})=>{
       <td>${shopeeBadge(x)}</td>
       <td><input type="number" value="${x.price}" onchange="upd('${x.id}',{price:+this.value})"></td>
       <td><input type="number" value="${x.price_before||''}" placeholder="—" onchange="upd('${x.id}',{price_before:this.value?+this.value:null,discount:this.value?Math.round((1-${x.price}/+this.value)*100):0})"></td>
-      <td><input type="number" value="${x.stock??''}" placeholder="∞" onchange="upd('${x.id}',{stock:this.value===''?null:+this.value})"></td>
+      <td><input type="number" value="${x.stock??''}" placeholder="∞" style="${x.stock===0?'border-color:var(--danger);background:#fee2e2':(x.stock!==null&&x.stock<=5?'border-color:#d97706;background:#fff7ed':'')}" onchange="upd('${x.id}',{stock:this.value===''?null:+this.value})"></td>
       <td>${x.sold}</td>
       <td><input type="checkbox" ${x.is_active?'checked':''} onchange="upd('${x.id}',{is_active:this.checked})"></td></tr>`;}).join('')}</table></div>`;
 };
@@ -429,6 +435,66 @@ V.customers=async()=>{ if(!SB) return '<h1>Khách hàng</h1><p class="sub">Cần
     <div class="panel tbl-scroll"><table><tr><th>Tên</th><th>Điện thoại</th><th>Địa chỉ</th><th>Số đơn</th><th>Tổng chi</th><th>Lần cuối</th></tr>
     ${c.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td><a href="tel:${esc(x.phone)}">${esc(x.phone)}</a></td><td class="sm">${esc(x.address||'')}</td><td>${x.order_count}</td><td><b>${fmt(x.total_spent)}</b></td><td class="sm">${new Date(x.updated_at).toLocaleDateString('vi-VN')}</td></tr>`).join('')||'<tr><td colspan="6" class="sm">Chưa có khách hàng.</td></tr>'}</table></div>`;
 };
+
+
+async function stockAlertHtml(){
+  try{ const rows=await sb('v_stock_alert?limit=12');
+    if(!rows.length) return '';
+    return `<div class="panel" style="padding:16px 18px;margin-bottom:22px;border-left:4px solid var(--danger)">
+      <h3 style="margin:0 0 10px;font-size:15px">⚠️ Cảnh báo tồn kho (${rows.length})</h3>
+      <div class="tbl-scroll"><table><tr><th>Sản phẩm</th><th>Còn lại</th><th>Đã bán</th><th>Cập nhật từ Shopee</th></tr>
+      ${rows.map(r=>`<tr><td>${esc(r.name).slice(0,70)}</td>
+        <td><b style="color:${r.stock===0?'var(--danger)':'#d97706'}">${r.stock===0?'HẾT HÀNG':r.stock}</b></td>
+        <td>${r.sold}</td><td class="sm">${r.shopee_synced_at?dt(r.shopee_synced_at):'—'}</td></tr>`).join('')}</table></div></div>`;
+  }catch(e){ return ''; }
+}
+
+const VKIND={percent:'Giảm %',amount:'Giảm tiền'};
+V.vouchers=async()=>{ if(!SB) return '<h1>Voucher</h1><p class="sub">Cần Supabase.</p>';
+  const vs=await sb('vouchers?order=is_default.desc,created_at.desc');
+  const row=v=>`<tr>
+    <td><b style="font-family:ui-monospace,monospace;letter-spacing:.5px">${esc(v.code)}</b>${v.is_default?'<div class="sm" style="color:var(--brand-dark);font-weight:600">⭐ Mặc định</div>':''}</td>
+    <td><input value="${esc(v.title)}" onchange="uv('${esc(v.code)}',{title:this.value})"></td>
+    <td><select onchange="uv('${esc(v.code)}',{kind:this.value})">${Object.entries(VKIND).map(([k,n])=>`<option value="${k}" ${v.kind===k?'selected':''}>${n}</option>`).join('')}</select></td>
+    <td><input type="number" value="${v.value}" onchange="uv('${esc(v.code)}',{value:+this.value})"></td>
+    <td><input type="number" value="${v.max_discount??''}" placeholder="—" onchange="uv('${esc(v.code)}',{max_discount:this.value?+this.value:null})"></td>
+    <td><input type="number" value="${v.min_order}" onchange="uv('${esc(v.code)}',{min_order:+this.value})"></td>
+    <td><input type="date" value="${v.ends_at?v.ends_at.slice(0,10):''}" onchange="uv('${esc(v.code)}',{ends_at:this.value?this.value+'T23:59:59+07:00':null})"></td>
+    <td class="sm">${v.used_count}${v.usage_limit?' / '+v.usage_limit:''}</td>
+    <td><input type="checkbox" ${v.show_on_site?'checked':''} onchange="uv('${esc(v.code)}',{show_on_site:this.checked})"></td>
+    <td><input type="radio" name="vdef" ${v.is_default?'checked':''} onchange="setDefaultVoucher('${esc(v.code)}')"></td>
+    <td><input type="checkbox" ${v.is_active?'checked':''} onchange="uv('${esc(v.code)}',{is_active:this.checked})"></td>
+    <td><button class="link-danger" onclick="delVoucher('${esc(v.code)}')">Xóa</button></td></tr>`;
+  return `<h1>Voucher giảm giá</h1><p class="sub">Voucher <b>mặc định</b> tự áp dụng khi khách thanh toán · voucher bật <b>Quảng cáo</b> sẽ hiện trên trang chủ và trang sản phẩm</p>
+    <div class="panel" style="padding:18px;margin-bottom:18px">
+      <h3 style="margin:0 0 12px;font-size:15px">Tạo voucher mới</h3>
+      <div class="bar">
+        <input id="nvCode" placeholder="MÃ VOUCHER" style="text-transform:uppercase;width:160px">
+        <input id="nvTitle" placeholder="Tiêu đề hiển thị cho khách" style="min-width:280px">
+        <select id="nvKind"><option value="percent">Giảm %</option><option value="amount">Giảm tiền</option></select>
+        <input id="nvValue" type="number" placeholder="Giá trị" style="width:120px">
+        <input id="nvMin" type="number" placeholder="Đơn tối thiểu" style="width:150px">
+        <button class="btn btn--sm" onclick="addVoucher()">+ Tạo voucher</button>
+      </div>
+    </div>
+    <div class="panel tbl-scroll"><table>
+      <tr><th>Mã</th><th>Tiêu đề</th><th>Loại</th><th>Giá trị</th><th>Giảm tối đa</th><th>Đơn tối thiểu</th><th>Hết hạn</th><th>Đã dùng</th><th>Quảng cáo</th><th>Mặc định</th><th>Bật</th><th></th></tr>
+      ${vs.map(row).join('')||'<tr><td colspan="12" class="sm">Chưa có voucher nào.</td></tr>'}</table></div>
+    <p class="sm" style="margin-top:12px">Ví dụ: <b>WEB15</b> giảm 15% mọi đơn · tạo thêm <b>FREESHIP50</b> giảm tiền 25.000₫ cho đơn từ 200.000₫ · hoặc <b>TET2027</b> giảm 20% tối đa 100.000₫.</p>`;
+};
+window.uv=async(code,body)=>{try{await sb('vouchers?code=eq.'+encodeURIComponent(code),{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu '+code);}catch(e){toast('❌ '+e.message);}};
+window.setDefaultVoucher=async code=>{try{
+  await sb('vouchers?is_default=eq.true',{method:'PATCH',body:JSON.stringify({is_default:false})});
+  await sb('vouchers?code=eq.'+encodeURIComponent(code),{method:'PATCH',body:JSON.stringify({is_default:true,is_active:true})});
+  toast(code+' là voucher mặc định');show('vouchers');}catch(e){toast('❌ '+e.message);}};
+window.delVoucher=async code=>{ if(!confirm('Xóa voucher '+code+'?'))return;
+  try{await sb('vouchers?code=eq.'+encodeURIComponent(code),{method:'DELETE'});show('vouchers');}catch(e){toast('❌ '+e.message);}};
+window.addVoucher=async()=>{
+  const code=$('#nvCode').value.trim().toUpperCase(), title=$('#nvTitle').value.trim(), kind=$('#nvKind').value,
+        value=+$('#nvValue').value, min=+$('#nvMin').value||0;
+  if(!code||!title||!value) return toast('Nhập đủ mã, tiêu đề và giá trị');
+  try{ await sb('vouchers',{method:'POST',body:JSON.stringify({code,title,kind,value,min_order:min,is_active:true,show_on_site:true})});
+    toast('Đã tạo voucher '+code); show('vouchers'); }catch(e){ toast('❌ '+e.message); }};
 
 V.reviews=async()=>{ if(!SB) return '<h1>Đánh giá</h1><p class="sub">Cần Supabase.</p>';
   const r=await sb('reviews?select=*,products(name,product_images(url,sort_order))&order=is_approved.asc,created_at.desc&limit=200');

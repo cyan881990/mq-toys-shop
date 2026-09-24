@@ -2,7 +2,7 @@
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const app = $('#app');
-  const state = { db: null, cart: loadCart() };
+  const state = { db: null, cart: loadCart(), voucher: null };
   const fmt = n => (n || 0).toLocaleString('vi-VN') + '₫';
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let FREESHIP = 300000, SHIP = 25000;
@@ -38,8 +38,16 @@
   function totals(lines) {
     const subtotal = lines.reduce((a, l) => a + l.price * l.qty, 0);
     const shipping = subtotal === 0 ? 0 : subtotal >= FREESHIP ? 0 : SHIP;
-    return { subtotal, shipping, total: subtotal + shipping };
+    const v = state.voucher;
+    let discount = 0;
+    if (v && subtotal >= (v.min_order || 0)) {
+      discount = v.kind === 'percent' ? Math.floor(subtotal * v.value / 100) : Math.min(v.value, subtotal);
+      if (v.kind === 'percent' && v.max_discount) discount = Math.min(discount, v.max_discount);
+    }
+    return { subtotal, discount, shipping, total: subtotal - discount + shipping };
   }
+  const defaultVoucher = () => (state.db.vouchers || []).find(v => v.is_default) || null;
+  const voucherLabel = v => v.kind === 'percent' ? `giảm ${v.value}%${v.max_discount ? ' tối đa ' + fmt(v.max_discount) : ''}` : `giảm ${fmt(v.value)}`;
   function variantImage(p, model) {
     if (!model || !p.variants.length) return '';
     const v = p.variants[0]; const idx = v.options.indexOf(model.split(',')[0]);
@@ -67,21 +75,33 @@
     $('#footerLoc').textContent = state.db.shop.location;
     $('#shopeeLink').href = state.db.shop.shopee;
     $('#year').textContent = new Date().getFullYear();
+    state.db.vouchers = state.db.vouchers || [];
+    if (!state.voucher) state.voucher = defaultVoucher();
     renderCartCount();
   }
 
   // ---------- Thành phần ----------
   const stars = r => { const n = Math.round(r || 0); return `<span class="stars" title="${r}">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>`; };
+  const soldOut = p => p.stock !== null && p.stock !== undefined && p.stock <= 0;
+  const lowStock = p => p.stock !== null && p.stock !== undefined && p.stock > 0 && p.stock <= 5;
   function card(p) {
-    return `<article class="card">
+    return `<article class="card${soldOut(p) ? ' card--out' : ''}">
+      ${soldOut(p) ? '<span class="soldout">HẾT HÀNG</span>' : ''}
       ${p.discount ? `<span class="discount">-${p.discount}%</span>` : ''}
       <a href="#/san-pham/${p.slug}"><img class="card__img" src="${p.images[0]}" alt="${esc(p.name)}" loading="lazy"></a>
       <div class="card__body">
         <a class="card__name" href="#/san-pham/${p.slug}">${esc(p.name)}</a>
         <div class="card__price"><span class="price">${fmt(p.price)}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}</div>
         <div class="card__meta"><span>${p.rating ? stars(p.rating) + ' ' + Number(p.rating).toFixed(1) : ''}</span><span>Đã bán ${p.sold}</span></div>
-        <button class="card__add" data-add="${p.id}">${p.models.length ? 'Chọn phân loại' : '+ Thêm vào giỏ'}</button>
+        <button class="card__add" data-add="${p.id}" ${soldOut(p) ? 'disabled' : ''}>${soldOut(p) ? 'Hết hàng' : (p.models.length ? 'Chọn phân loại' : '+ Thêm vào giỏ')}</button>
       </div></article>`;
+  }
+  function voucherBanner() {
+    const vs = (state.db.vouchers || []).slice(0, 3);
+    if (!vs.length) return '';
+    return `<div class="vbanner">${vs.map(v => `<div class="vbanner__item"><div class="vbanner__tag">${v.kind === 'percent' ? '-' + v.value + '%' : 'SALE'}</div>
+      <div><b>${esc(v.title)}</b><div class="vbanner__sub">Mã <code>${esc(v.code)}</code>${v.min_order ? ' · đơn từ ' + fmt(v.min_order) : ''}${v.is_default ? ' · tự động áp dụng khi thanh toán' : ''}</div></div>
+      <button class="vbanner__copy" data-vcode="${esc(v.code)}">Sao chép</button></div>`).join('')}</div>`;
   }
   const crumb = parts => `<nav class="crumb">${['<a href="#/">Trang chủ</a>', ...parts].join(' › ')}</nav>`;
 
@@ -105,6 +125,7 @@
           <div class="hero__stat"><span class="ic">💵</span><div><b>COD</b><span>Thanh toán khi nhận hàng</span></div></div>
         </div>
       </section>
+      ${voucherBanner()}
       <section class="section"><div class="section__head"><h2>Danh mục sản phẩm</h2></div>
         <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="#/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
       ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="#/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
@@ -181,11 +202,13 @@
             ${p.rating ? `<span><b>${Number(p.rating).toFixed(1)}</b> ${stars(p.rating)}</span>` : ''}
             <span><b>${p.ratingCount || p.reviews.length}</b> đánh giá</span>
             <span><b>${p.sold}</b> đã bán</span>
+            ${p.stock === null || p.stock === undefined ? '' : (p.stock > 0 ? `<span class="${p.stock <= 5 ? 'stock-low' : ''}">Còn <b>${p.stock}</b> sản phẩm</span>` : '<span class="stock-out">Tạm hết hàng</span>')}
           </div>
+          ${voucherBanner()}
           <div class="pd__price"><span class="price" id="pdPrice">${priceRange}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}${p.discount ? `<span class="off">GIẢM ${p.discount}%</span>` : ''}</div>
           ${p.variants.map(v => `<div class="opt"><div class="opt__label">${esc(v.name)}</div><div class="chips" data-variant>${v.options.map((o, i) => `<button class="chip" data-opt="${esc(o)}">${v.images[i] ? `<img src="${v.images[i]}" alt="">` : ''}${esc(o)}</button>`).join('')}</div></div>`).join('')}
           <div class="opt"><div class="opt__label">Số lượng</div><div class="qty"><button id="qMinus">−</button><input id="qInput" value="1" inputmode="numeric"><button id="qPlus">+</button></div></div>
-          <div class="pd__actions"><button class="btn btn--ghost btn--lg" id="btnAdd">🛒 Thêm vào giỏ</button><button class="btn btn--lg" id="btnBuy">Mua ngay – COD</button></div>
+          <div class="pd__actions">${soldOut(p) ? '<div class="stock-out-box">Sản phẩm tạm hết hàng — vui lòng quay lại sau hoặc nhắn shop để đặt trước.</div>' : `<button class="btn btn--ghost btn--lg" id="btnAdd">🛒 Thêm vào giỏ</button><button class="btn btn--lg" id="btnBuy">Mua ngay – COD</button>`}</div>
           <div class="pd__trust"><div>💵 Thanh toán khi nhận hàng</div><div>🔄 Đổi trả trong 7 ngày nếu lỗi</div><div>🚚 Freeship đơn từ 300.000₫</div><div>✅ Hàng chính hãng, nguyên seal</div></div>
         </div>
       </div>
@@ -219,8 +242,8 @@
     const qIn = $('#qInput'); const setQ = n => { qty = Math.max(1, Math.min(99, n || 1)); qIn.value = qty; };
     $('#qMinus').onclick = () => setQ(qty - 1); $('#qPlus').onclick = () => setQ(qty + 1); qIn.onchange = () => setQ(parseInt(qIn.value, 10));
     const ensureVariant = () => { if (p.variants.length && !selected) { toast('Vui lòng chọn phân loại sản phẩm'); $('[data-variant]').scrollIntoView({ block: 'center' }); return false; } return true; };
-    $('#btnAdd').onclick = () => ensureVariant() && addToCart(p.id, qty, selected);
-    $('#btnBuy').onclick = () => { if (!ensureVariant()) return; addToCart(p.id, qty, selected); location.hash = '#/thanh-toan'; };
+    if ($('#btnAdd')) $('#btnAdd').onclick = () => ensureVariant() && addToCart(p.id, qty, selected);
+    if ($('#btnBuy')) $('#btnBuy').onclick = () => { if (!ensureVariant()) return; addToCart(p.id, qty, selected); location.hash = '#/thanh-toan'; };
     // tabs
     document.querySelectorAll('.tabs__nav button').forEach(b => b.onclick = () => {
       document.querySelectorAll('.tabs__nav button').forEach(x => x.classList.toggle('active', x === b));
@@ -251,7 +274,9 @@
     app.innerHTML = crumb(['Giỏ hàng']) + `<div class="cart"><div class="cart__list">${lines.map(l => `<div class="cart__item" data-key="${esc(l.key)}">
         <img src="${l.image}" alt=""><div><a class="cart__name" href="#/san-pham/${l.p.slug}">${esc(l.p.name)}</a>${l.model ? `<div class="cart__variant">Phân loại: ${esc(l.model)}</div>` : ''}<div class="price" style="font-size:14px">${fmt(l.price)}</div></div>
         <div class="cart__right"><div class="qty"><button data-q="-1">−</button><input value="${l.qty}" data-qin inputmode="numeric"><button data-q="1">+</button></div><b>${fmt(l.price * l.qty)}</b><button class="link-danger" data-rm>Xóa</button></div></div>`).join('')}</div>
-      <aside class="summary"><h3>Tóm tắt đơn hàng</h3><div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div><div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
+      <aside class="summary"><h3>Tóm tắt đơn hàng</h3><div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
+        ${t.discount ? `<div class="row row--disc"><span>Giảm giá (${esc(state.voucher.code)})</span><span>−${fmt(t.discount)}</span></div>` : ''}
+        <div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
         ${t.shipping ? `<div class="note-free">Mua thêm ${fmt(FREESHIP - t.subtotal)} để được miễn phí vận chuyển</div>` : '<div class="note-free">🎉 Đơn hàng được miễn phí vận chuyển</div>'}
         <div class="row total"><span>Tổng cộng</span><span>${fmt(t.total)}</span></div>
         <a class="btn btn--lg btn--block" href="#/thanh-toan" style="margin-top:12px">Đặt hàng – Thanh toán khi nhận</a><a class="btn btn--ghost btn--block" href="#/" style="margin-top:8px">Tiếp tục mua sắm</a></aside></div>`;
@@ -273,13 +298,44 @@
         <div class="field"><label>Số điện thoại *</label><input name="phone" value="${esc(saved.phone || '')}" placeholder="09xx xxx xxx" inputmode="tel" required><div class="err">Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0)</div></div>
         <div class="field"><label>Địa chỉ nhận hàng *</label><textarea name="address" rows="3" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" required>${esc(saved.address || '')}</textarea><div class="err">Vui lòng nhập địa chỉ đầy đủ (số nhà, đường, phường/xã, quận/huyện, tỉnh/thành)</div></div>
         <div class="field"><label>Ghi chú (không bắt buộc)</label><textarea name="note" rows="2" placeholder="Ví dụ: giao giờ hành chính, gọi trước khi giao…"></textarea></div>
+        <h2>Mã giảm giá</h2>
+        <div class="vbox">
+          <div class="vbox__row"><input id="vInput" placeholder="Nhập mã giảm giá" value="${esc(state.voucher ? state.voucher.code : '')}" autocomplete="off"><button type="button" class="btn btn--sm" id="vApply">Áp dụng</button></div>
+          <div id="vMsg" class="vbox__msg">${state.voucher ? `✅ Đang áp dụng <b>${esc(state.voucher.code)}</b> – ${esc(state.voucher.title)}` : ''}</div>
+          ${(state.db.vouchers || []).length ? `<div class="vbox__list">${state.db.vouchers.map(v => `<button type="button" class="vchip" data-pick="${esc(v.code)}">${esc(v.code)} · ${voucherLabel(v)}</button>`).join('')}</div>` : ''}
+        </div>
         <h2>Phương thức thanh toán</h2>
         <div class="pay"><span class="ic">💵</span><div><b>Thanh toán khi nhận hàng (COD)</b><small>Bạn kiểm tra hàng rồi mới thanh toán tiền mặt cho shipper.</small></div></div>
         <p class="muted" style="font-size:13px">Bằng việc đặt hàng, bạn đồng ý với <a href="#/chinh-sach" style="color:var(--brand-dark)">chính sách giao hàng &amp; đổi trả</a>.</p>
         <button class="btn btn--lg btn--block" type="submit" id="coSubmit">Xác nhận đặt hàng – ${fmt(t.total)}</button>
       </form>
       <aside class="summary"><h3>Đơn hàng (${lines.reduce((a, l) => a + l.qty, 0)} sản phẩm)</h3><div class="mini-list">${lines.map(l => `<div class="mini"><img src="${l.image}" alt=""><span>${esc(l.p.name)}${l.model ? ` <i class="muted">(${esc(l.model)})</i>` : ''}</span><b>×${l.qty}</b></div>`).join('')}</div>
-        <div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div><div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div><div class="row total"><span>Tổng thanh toán</span><span>${fmt(t.total)}</span></div></aside></div>`;
+        <div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
+        ${t.discount ? `<div class="row row--disc"><span>Giảm giá (${esc(state.voucher.code)})</span><span>−${fmt(t.discount)}</span></div>` : ''}
+        <div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
+        <div class="row total"><span>Tổng thanh toán</span><span>${fmt(t.total)}</span></div>
+        ${t.discount ? `<div class="note-free">🎉 Bạn tiết kiệm được ${fmt(t.discount)} khi đặt trên website</div>` : ''}</aside></div>`;
+    const applyVoucher = async code => {
+      code = (code || '').trim().toUpperCase();
+      const msg = $('#vMsg');
+      if (!code) { state.voucher = null; pageCheckout(); return; }
+      msg.innerHTML = 'Đang kiểm tra…';
+      const known = (state.db.vouchers || []).find(v => v.code === code);
+      try {
+        if (SB) {
+          const r = await rpc('check_voucher', { p_code: code, p_subtotal: t.subtotal });
+          if (!r.ok) { state.voucher = null; msg.innerHTML = `<span style="color:var(--danger)">❌ ${esc(r.error)}</span>`; return; }
+          state.voucher = known || { code: r.code, title: r.title, kind: 'amount', value: r.discount, min_order: 0 };
+        } else {
+          if (!known) { msg.innerHTML = '<span style="color:var(--danger)">❌ Mã giảm giá không tồn tại</span>'; return; }
+          state.voucher = known;
+        }
+        pageCheckout();
+      } catch (err) { msg.innerHTML = `<span style="color:var(--danger)">❌ ${esc(err.message)}</span>`; }
+    };
+    $('#vApply').onclick = () => applyVoucher($('#vInput').value);
+    $('#vInput').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); applyVoucher($('#vInput').value); } };
+    app.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => applyVoucher(b.dataset.pick));
     const form = $('#coForm');
     form.onsubmit = async e => {
       e.preventDefault();
@@ -290,7 +346,7 @@
       if (!(okName && okPhone && okAddr)) { form.querySelector('.invalid input,.invalid textarea')?.focus(); return; }
       const btn = $('#coSubmit'); btn.disabled = true; btn.textContent = 'Đang gửi đơn hàng…';
       localStorage.setItem('mq_customer', JSON.stringify({ name: f.name, phone: f.phone, address: f.address }));
-      const payload = { customer: f, items: state.cart.map(i => ({ id: i.id, qty: i.qty, model: i.model })) };
+      const payload = { customer: f, voucher: state.voucher ? state.voucher.code : '', items: state.cart.map(i => ({ id: i.id, qty: i.qty, model: i.model })) };
       try {
         let j;
         if (SB) { j = { order: await rpc('place_order', { payload }) }; }
@@ -302,7 +358,7 @@
           j = await r.json();
           if (!r.ok || j.error) throw new Error(j.error || 'Lỗi đặt hàng');
         }
-        state.cart = []; saveCart();
+        state.cart = []; saveCart(); state.voucher = defaultVoucher();
         sessionStorage.setItem('mq_last_order', JSON.stringify(j.order));
         location.hash = '#/dat-hang-thanh-cong/' + j.order.code;
       } catch (err) {
@@ -323,6 +379,7 @@
     return `<div class="order-box"><div class="row"><span>Mã đơn</span><b>${esc(o.code)}</b></div><div class="row"><span>Trạng thái</span><span class="status ${o.status}">${STATUS[o.status] || o.status}</span></div>
       <div class="row"><span>Người nhận</span><span>${esc(o.customer.name)} – ${esc(o.customer.phone)}</span></div><div class="row"><span>Địa chỉ</span><span style="text-align:right;max-width:60%">${esc(o.customer.address)}</span></div>
       <hr style="border:0;border-top:1px dashed var(--line)">${o.items.map(i => `<div class="row"><span>${esc(i.name.slice(0, 55))}${i.name.length > 55 ? '…' : ''}${i.variant ? ` <i class="muted">(${esc(i.variant)})</i>` : ''} ×${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
+      ${o.discount ? `<div class="row" style="color:var(--ok)"><span>Giảm giá${o.voucher ? ' (' + esc(o.voucher) + ')' : ''}</span><span>−${fmt(o.discount)}</span></div>` : ''}
       <div class="row"><span>Phí vận chuyển</span><span>${o.shipping ? fmt(o.shipping) : 'Miễn phí'}</span></div><div class="row" style="font-weight:700;font-size:16px"><span>Tổng thanh toán khi nhận</span><span style="color:var(--brand-dark)">${fmt(o.total)}</span></div></div>`;
   }
   function pageSuccess(code) {
@@ -383,6 +440,8 @@
   }
   window.addEventListener('hashchange', route);
   document.addEventListener('click', e => {
+    const v = e.target.closest('[data-vcode]');
+    if (v) { navigator.clipboard.writeText(v.dataset.vcode).then(() => toast('Đã sao chép mã ' + v.dataset.vcode)).catch(() => toast('Mã: ' + v.dataset.vcode)); return; }
     const b = e.target.closest('[data-add]'); if (!b) return;
     const p = byId(b.dataset.add);
     if (p.models.length) location.hash = '#/san-pham/' + p.slug; else addToCart(p.id, 1);
