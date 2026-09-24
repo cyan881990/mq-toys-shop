@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M&Q Toys – Đồ chơi lắp ráp, mô hình, thẻ bài cho bé</title>
+<meta name="description" content="Cửa hàng đồ chơi M&Q HOME TECH: đồ chơi lắp ráp, mô hình, xe, thẻ Pokémon Mezastar. Giao hàng toàn quốc, thanh toán khi nhận hàng (COD).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23ff6a1a'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>MQ</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="container topbar__inner">
+    <a href="#/" class="logo"><span class="logo__mark">MQ</span><span class="logo__text">M&amp;Q <b>Toys</b></span></a>
+    <form class="search" id="searchForm" role="search">
+      <input type="search" id="searchInput" placeholder="Tìm đồ chơi, mô hình, thẻ bài…" autocomplete="off">
+      <button type="submit" aria-label="Tìm kiếm">🔍</button>
+    </form>
+    <nav class="topnav">
+      <a href="#/tra-cuu" class="topnav__link">Tra cứu đơn</a>
+      <a href="#/gio-hang" class="cartbtn" id="cartBtn">🛒 <span>Giỏ hàng</span><b id="cartCount" class="badge">0</b></a>
+    </nav>
+  </div>
+  <div class="catbar">
+    <div class="container catbar__inner" id="catbar"></div>
+  </div>
+</header>
+
+<main id="app" class="container"></main>
+
+<footer class="footer">
+  <div class="container footer__grid">
+    <div>
+      <div class="logo"><span class="logo__mark">MQ</span><span class="logo__text">M&amp;Q <b>Toys</b></span></div>
+      <p id="footerDesc" class="muted"></p>
+      <p class="muted">📍 <span id="footerLoc"></span></p>
+    </div>
+    <div>
+      <h4>Hỗ trợ khách hàng</h4>
+      <ul>
+        <li><a href="#/chinh-sach">Chính sách giao hàng &amp; đổi trả</a></li>
+        <li><a href="#/tra-cuu">Tra cứu đơn hàng</a></li>
+        <li><a href="#/gio-hang">Giỏ hàng</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Cam kết</h4>
+      <ul class="muted">
+        <li>✅ Hàng chính hãng, đầy đủ CO/CQ</li>
+        <li>🚚 Giao nhanh toàn quốc, kiểm hàng khi nhận</li>
+        <li>💵 Thanh toán khi nhận hàng (COD)</li>
+        <li>🎁 Freeship đơn từ 300.000₫</li>
+      </ul>
+    </div>
+  </div>
+  <div class="container footer__bottom muted">© <span id="year"></span> M&amp;Q HOME TECH · Website được xây dựng từ dữ liệu gian hàng Shopee <a id="shopeeLink" href="#" target="_blank" rel="noopener">mqhometech</a></div>
+</footer>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="lightbox" class="lightbox" hidden><button class="lightbox__close" aria-label="Đóng">✕</button><img alt=""></div>
+
+<script src="/config.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

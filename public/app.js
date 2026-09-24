@@ -1,0 +1,366 @@
+/* M&Q Toys – ứng dụng một trang (hash router), giỏ hàng lưu localStorage, đặt hàng COD qua /api/orders */
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const app = $('#app');
+  const state = { db: null, cart: loadCart() };
+  const fmt = n => (n || 0).toLocaleString('vi-VN') + '₫';
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  let FREESHIP = 300000, SHIP = 25000;
+  const CFG = window.MQ_CONFIG || {};
+  const SB = CFG.supabaseUrl ? { url: CFG.supabaseUrl.replace(/\/$/, ''), key: CFG.supabaseAnonKey } : null;
+  async function rpc(fn, args) {
+    const r = await fetch(`${SB.url}/rest/v1/rpc/${fn}`, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SB.key, Authorization: 'Bearer ' + SB.key }, body: JSON.stringify(args || {}) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || j.error || 'Lỗi máy chủ'); // Postgres RAISE → message
+    return j;
+  }
+
+  // ---------- Giỏ hàng ----------
+  function loadCart() { try { return JSON.parse(localStorage.getItem('mq_cart') || '[]'); } catch { return []; } }
+  function saveCart() { localStorage.setItem('mq_cart', JSON.stringify(state.cart)); renderCartCount(); }
+  function renderCartCount() { $('#cartCount').textContent = state.cart.reduce((a, i) => a + i.qty, 0); }
+  function addToCart(id, qty = 1, model = '') {
+    const p = byId(id); if (!p) return;
+    const key = id + '|' + model;
+    const found = state.cart.find(i => i.key === key);
+    if (found) found.qty = Math.min(99, found.qty + qty);
+    else state.cart.push({ key, id, model, qty });
+    saveCart();
+    toast(`Đã thêm vào giỏ: ${p.name.slice(0, 50)}…`);
+  }
+  function cartLines() {
+    return state.cart.map(i => {
+      const p = byId(i.id); if (!p) return null;
+      const m = p.models.find(m => m.name === i.model);
+      return { ...i, p, price: (m && m.price) || p.price, image: (m && m.image) || variantImage(p, i.model) || p.images[0] };
+    }).filter(Boolean);
+  }
+  function totals(lines) {
+    const subtotal = lines.reduce((a, l) => a + l.price * l.qty, 0);
+    const shipping = subtotal === 0 ? 0 : subtotal >= FREESHIP ? 0 : SHIP;
+    return { subtotal, shipping, total: subtotal + shipping };
+  }
+  function variantImage(p, model) {
+    if (!model || !p.variants.length) return '';
+    const v = p.variants[0]; const idx = v.options.indexOf(model.split(',')[0]);
+    return idx >= 0 ? (v.images[idx] || '') : '';
+  }
+
+  // ---------- Dữ liệu ----------
+  const byId = id => state.db.products.find(p => p.id === String(id));
+  const catById = id => state.db.categories.find(c => c.id === String(id) || c.slug === id);
+  const productsOf = c => c.items.map(byId).filter(Boolean);
+
+  async function loadData() {
+    if (SB) {
+      state.db = await rpc('get_catalog');
+      if (state.db.shipping) { SHIP = +state.db.shipping.fee || SHIP; FREESHIP = +state.db.shipping.freeFrom || FREESHIP; }
+    } else {
+      const r = await fetch('/api/products', { headers: { Accept: 'application/json' } }).catch(() => null);
+      const ok = r && r.ok && (r.headers.get('content-type') || '').includes('json');
+      state.db = ok ? await r.json() : await (await fetch('/data/products.json')).json();
+    }
+    // Danh mục hiển thị: bỏ danh mục trống
+    state.cats = state.db.categories.filter(c => c.items.length);
+    $('#catbar').innerHTML = `<a href="#/">Trang chủ</a>` + state.cats.map(c => `<a href="#/danh-muc/${c.slug}" data-cat="${c.slug}">${esc(c.name)}</a>`).join('');
+    $('#footerDesc').textContent = state.db.shop.description;
+    $('#footerLoc').textContent = state.db.shop.location;
+    $('#shopeeLink').href = state.db.shop.shopee;
+    $('#year').textContent = new Date().getFullYear();
+    renderCartCount();
+  }
+
+  // ---------- Thành phần ----------
+  const stars = r => { const n = Math.round(r || 0); return `<span class="stars" title="${r}">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>`; };
+  function card(p) {
+    return `<article class="card">
+      ${p.discount ? `<span class="discount">-${p.discount}%</span>` : ''}
+      <a href="#/san-pham/${p.slug}"><img class="card__img" src="${p.images[0]}" alt="${esc(p.name)}" loading="lazy"></a>
+      <div class="card__body">
+        <a class="card__name" href="#/san-pham/${p.slug}">${esc(p.name)}</a>
+        <div class="card__price"><span class="price">${fmt(p.price)}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}</div>
+        <div class="card__meta"><span>${p.rating ? stars(p.rating) + ' ' + Number(p.rating).toFixed(1) : ''}</span><span>Đã bán ${p.sold}</span></div>
+        <button class="card__add" data-add="${p.id}">${p.models.length ? 'Chọn phân loại' : '+ Thêm vào giỏ'}</button>
+      </div></article>`;
+  }
+  const crumb = parts => `<nav class="crumb">${['<a href="#/">Trang chủ</a>', ...parts].join(' › ')}</nav>`;
+
+  // ---------- Trang ----------
+  function pageHome() {
+    const db = state.db, all = db.products;
+    const best = [...all].sort((a, b) => b.sold - a.sold).slice(0, 10);
+    const newest = productsOf(catById('271399347') || { items: [] }).slice(0, 10);
+    const sale = productsOf(catById('271083241') || { items: [] });
+    const catImg = c => (productsOf(c)[0] || {}).images?.[0] || '';
+    app.innerHTML = `
+      <section class="hero">
+        <div class="hero__main">
+          <h1>Đồ chơi lắp ráp, mô hình &amp; thẻ bài<br>cho bé thỏa sức sáng tạo 🎉</h1>
+          <p>${esc(db.shop.name)} – hơn ${all.length} sản phẩm chọn lọc từ gian hàng Shopee 4.9★. Giao hàng toàn quốc, <b>thanh toán khi nhận hàng (COD)</b>, kiểm tra hàng trước khi thanh toán.</p>
+          <div><a class="btn btn--lg" href="#/danh-muc/${state.cats[0]?.slug || ''}">Mua sắm ngay</a></div>
+        </div>
+        <div class="hero__side">
+          <div class="hero__stat"><span class="ic">⭐</span><div><b>${db.shop.rating}/5</b><span>Đánh giá trên Shopee</span></div></div>
+          <div class="hero__stat"><span class="ic">👥</span><div><b>${db.shop.followers.toLocaleString('vi-VN')}</b><span>Người theo dõi</span></div></div>
+          <div class="hero__stat"><span class="ic">💵</span><div><b>COD</b><span>Thanh toán khi nhận hàng</span></div></div>
+        </div>
+      </section>
+      <section class="section"><div class="section__head"><h2>Danh mục sản phẩm</h2></div>
+        <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="#/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
+      ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="#/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
+      <section class="section"><div class="section__head"><h2>🏆 Bán chạy nhất</h2></div><div class="grid">${best.map(card).join('')}</div></section>
+      ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="#/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}`;
+  }
+
+  function pageCategory(slug, q) {
+    const c = slug ? catById(slug) : null;
+    let list = c ? productsOf(c) : state.db.products;
+    const title = c ? c.name : (q ? `Kết quả cho “${q}”` : 'Tất cả sản phẩm');
+    if (q) { const k = q.toLowerCase(); list = list.filter(p => p.name.toLowerCase().includes(k)); }
+    const sortKey = (location.hash.match(/sort=(\w+)/) || [])[1] || 'pop';
+    const sorters = { pop: (a, b) => b.sold - a.sold, new: (a, b) => b.id.localeCompare(a.id), asc: (a, b) => a.price - b.price, desc: (a, b) => b.price - a.price, rating: (a, b) => b.rating - a.rating };
+    list = [...list].sort(sorters[sortKey] || sorters.pop);
+    app.innerHTML = crumb(c ? [esc(c.name)] : ['Tìm kiếm']) + `
+      <div class="toolbar"><h1>${esc(title)} <span class="muted" style="font-size:14px;font-weight:400">(${list.length} sản phẩm)</span></h1>
+        <label class="muted" style="font-size:13.5px">Sắp xếp
+        <select id="sortSel"><option value="pop">Bán chạy</option><option value="new">Mới nhất</option><option value="asc">Giá tăng dần</option><option value="desc">Giá giảm dần</option><option value="rating">Đánh giá cao</option></select></label></div>
+      ${list.length ? `<div class="grid">${list.map(card).join('')}</div>` : `<div class="empty"><div class="big">🔎</div>Không tìm thấy sản phẩm phù hợp.</div>`}`;
+    $('#sortSel').value = sortKey;
+    $('#sortSel').onchange = e => { const base = location.hash.split('?')[0]; const qs = new URLSearchParams(location.hash.split('?')[1] || ''); qs.set('sort', e.target.value); location.hash = base + '?' + qs; };
+    document.querySelectorAll('#catbar a').forEach(a => a.classList.toggle('active', a.dataset.cat === slug));
+  }
+
+  function pageProduct(slug) {
+    const p = state.db.products.find(p => p.slug === slug || p.id === slug);
+    if (!p) return notFound();
+    const cat = mainCat(p);
+    let selected = (p.variants.length === 1 && p.variants[0].options.length === 1) ? p.variants[0].options[0] : ''; let qty = 1; let imgIdx = 0;
+    const priceRange = p.priceMax ? `${fmt(p.price)} – ${fmt(p.priceMax)}` : fmt(p.price);
+    const dist = p.ratingDist || [0, 0, 0, 0, 0]; const total = dist.reduce((a, b) => a + b, 0) || p.reviews.length;
+    app.innerHTML = crumb([cat ? `<a href="#/danh-muc/${cat.slug}">${esc(cat.name)}</a>` : '', esc(p.name.slice(0, 60)) + '…'].filter(Boolean)) + `
+      <div class="pd">
+        <div class="gallery">
+          <div class="gallery__main" id="galMain"><img src="${p.images[0]}" alt="${esc(p.name)}"></div>
+          <div class="gallery__thumbs" id="galThumbs">${p.images.map((s, i) => `<img src="${s}" class="${i === 0 ? 'active' : ''}" data-i="${i}" alt="">`).join('')}</div>
+        </div>
+        <div>
+          <h1>${esc(p.name)}</h1>
+          <div class="pd__meta">
+            ${p.rating ? `<span><b>${Number(p.rating).toFixed(1)}</b> ${stars(p.rating)}</span>` : ''}
+            <span><b>${p.ratingCount || p.reviews.length}</b> đánh giá</span>
+            <span><b>${p.sold}</b> đã bán</span>
+          </div>
+          <div class="pd__price"><span class="price" id="pdPrice">${priceRange}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}${p.discount ? `<span class="off">GIẢM ${p.discount}%</span>` : ''}</div>
+          ${p.variants.map(v => `<div class="opt"><div class="opt__label">${esc(v.name)}</div><div class="chips" data-variant>${v.options.map((o, i) => `<button class="chip" data-opt="${esc(o)}">${v.images[i] ? `<img src="${v.images[i]}" alt="">` : ''}${esc(o)}</button>`).join('')}</div></div>`).join('')}
+          <div class="opt"><div class="opt__label">Số lượng</div><div class="qty"><button id="qMinus">−</button><input id="qInput" value="1" inputmode="numeric"><button id="qPlus">+</button></div></div>
+          <div class="pd__actions"><button class="btn btn--ghost btn--lg" id="btnAdd">🛒 Thêm vào giỏ</button><button class="btn btn--lg" id="btnBuy">Mua ngay – COD</button></div>
+          <div class="pd__trust"><div>💵 Thanh toán khi nhận hàng</div><div>🔄 Đổi trả trong 7 ngày nếu lỗi</div><div>🚚 Freeship đơn từ 300.000₫</div><div>✅ Hàng chính hãng, nguyên seal</div></div>
+        </div>
+      </div>
+      <div class="tabs"><div class="tabs__nav"><button class="active" data-tab="desc">Mô tả sản phẩm</button><button data-tab="spec">Thông số</button><button data-tab="rv">Đánh giá (${p.reviews.length})</button></div>
+        <div class="panel" id="tab-desc"><div class="desc">${esc(p.description || 'Đang cập nhật mô tả.')}</div></div>
+        <div class="panel hidden" id="tab-spec"><div class="attrs">${p.attrs.map(a => `<div><span>${esc(a.n)}</span><span>${esc(a.v)}</span></div>`).join('') || '<span class="muted">Chưa có thông số.</span>'}${p.catpath.length ? `<div><span>Ngành hàng</span><span>${esc(p.catpath.join(' › '))}</span></div>` : ''}</div></div>
+        <div class="panel hidden" id="tab-rv">
+          <div class="rv-sum"><div class="rv-sum__big"><b>${Number(p.rating || 0).toFixed(1)}</b>${stars(p.rating)}<div class="muted" style="font-size:12px">${total} lượt đánh giá</div></div>
+            <div class="rv-bars">${[5, 4, 3, 2, 1].map(s => `<div class="rv-bar"><span>${s} ★</span><i style="--w:${total ? (dist[s - 1] / total * 100) : 0}%"></i><span class="muted">${dist[s - 1] || 0}</span></div>`).join('')}</div></div>
+          ${p.reviews.length ? p.reviews.map(review).join('') : '<p class="muted">Chưa có đánh giá cho sản phẩm này.</p>'}
+          ${SB ? `<form id="rvForm" class="form" style="margin-top:20px;box-shadow:none;border:1px solid var(--line)"><h2 style="font-size:16px">Viết đánh giá của bạn</h2>
+            <div class="field"><label>Tên hiển thị</label><input name="name" required maxlength="60" placeholder="Ví dụ: Mẹ Bin"></div>
+            <div class="field"><label>Số sao</label><select name="star"><option value="5">5 ★ Tuyệt vời</option><option value="4">4 ★ Hài lòng</option><option value="3">3 ★ Bình thường</option><option value="2">2 ★ Không hài lòng</option><option value="1">1 ★ Tệ</option></select></div>
+            <div class="field"><label>Nhận xét</label><textarea name="comment" rows="3" required maxlength="1000"></textarea></div>
+            <button class="btn">Gửi đánh giá</button> <span class="muted" style="font-size:12.5px">Đánh giá sẽ hiển thị sau khi shop duyệt.</span></form>` : ''}
+        </div></div>
+      ${related(p).length ? `<section class="section"><div class="section__head"><h2>Sản phẩm liên quan</h2></div><div class="grid">${related(p).map(card).join('')}</div></section>` : ''}`;
+
+    // gallery
+    const main = $('#galMain img');
+    $('#galThumbs').onclick = e => { const t = e.target.closest('img'); if (!t) return; imgIdx = +t.dataset.i; main.src = p.images[imgIdx]; document.querySelectorAll('#galThumbs img').forEach(x => x.classList.toggle('active', x === t)); };
+    $('#galMain').onclick = () => lightbox(main.src);
+    // variants
+    const chips = document.querySelectorAll('[data-variant] .chip');
+    chips.forEach(ch => { if (ch.dataset.opt === selected) ch.classList.add('active'); ch.onclick = () => {
+      chips.forEach(c => c.classList.remove('active')); ch.classList.add('active'); selected = ch.dataset.opt;
+      const m = p.models.find(m => m.name === selected); if (m) $('#pdPrice').textContent = fmt(m.price || p.price);
+      const vi = variantImage(p, selected); if (vi) main.src = vi;
+    }; });
+    // qty
+    const qIn = $('#qInput'); const setQ = n => { qty = Math.max(1, Math.min(99, n || 1)); qIn.value = qty; };
+    $('#qMinus').onclick = () => setQ(qty - 1); $('#qPlus').onclick = () => setQ(qty + 1); qIn.onchange = () => setQ(parseInt(qIn.value, 10));
+    const ensureVariant = () => { if (p.variants.length && !selected) { toast('Vui lòng chọn phân loại sản phẩm'); $('[data-variant]').scrollIntoView({ block: 'center' }); return false; } return true; };
+    $('#btnAdd').onclick = () => ensureVariant() && addToCart(p.id, qty, selected);
+    $('#btnBuy').onclick = () => { if (!ensureVariant()) return; addToCart(p.id, qty, selected); location.hash = '#/thanh-toan'; };
+    // tabs
+    document.querySelectorAll('.tabs__nav button').forEach(b => b.onclick = () => {
+      document.querySelectorAll('.tabs__nav button').forEach(x => x.classList.toggle('active', x === b));
+      ['desc', 'spec', 'rv'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+    });
+    document.querySelectorAll('.rv__imgs img').forEach(im => im.onclick = () => lightbox(im.src));
+    const rvf = $('#rvForm'); if (rvf) rvf.onsubmit = async e => { e.preventDefault(); const f = Object.fromEntries(new FormData(rvf).entries());
+      try { await rpc('submit_review', { p_product_id: p.id, p_name: f.name, p_star: +f.star, p_comment: f.comment }); rvf.innerHTML = '<p style="color:var(--ok)">✅ Cảm ơn bạn! Đánh giá sẽ hiển thị sau khi được duyệt.</p>'; } catch (err) { toast('❌ ' + err.message); } };
+    window.scrollTo(0, 0);
+  }
+  const mainCat = p => catById(p.categories.find(c => c !== '271399347') || p.categories[0]);
+  function related(p) { const c = mainCat(p); return c ? productsOf(c).filter(x => x.id !== p.id).slice(0, 5) : []; }
+  const COLORS = ['#ff6a1a', '#2f80ed', '#27ae60', '#9b51e0', '#eb5757', '#f2994a', '#219653', '#56ccf2'];
+  function review(r) {
+    const initial = (r.user || '?').replace(/\*/g, '').charAt(0) || '?';
+    const color = COLORS[(r.user || '').charCodeAt(0) % COLORS.length];
+    const date = r.time ? new Date(r.time * 1000).toLocaleDateString('vi-VN') : '';
+    return `<div class="rv"><div class="avatar" style="background:${color}">${esc(initial)}</div><div class="rv__body">
+      <div class="rv__user">${esc(r.user)}</div><div class="rv__meta">${stars(r.star)} · ${date}${r.variant ? ' · Phân loại: ' + esc(r.variant) : ''}</div>
+      ${r.comment ? `<div class="rv__text">${esc(r.comment)}</div>` : ''}
+      ${r.images.length ? `<div class="rv__imgs">${r.images.map(s => `<img src="${s}" alt="Ảnh đánh giá" loading="lazy">`).join('')}</div>` : ''}
+      ${r.reply ? `<div class="rv__reply"><b>Phản hồi của Shop:</b> ${esc(r.reply)}</div>` : ''}</div></div>`;
+  }
+
+  function pageCart() {
+    const lines = cartLines(); const t = totals(lines);
+    if (!lines.length) { app.innerHTML = crumb(['Giỏ hàng']) + `<div class="empty"><div class="big">🛒</div><p>Giỏ hàng của bạn đang trống.</p><a class="btn" href="#/">Tiếp tục mua sắm</a></div>`; return; }
+    app.innerHTML = crumb(['Giỏ hàng']) + `<div class="cart"><div class="cart__list">${lines.map(l => `<div class="cart__item" data-key="${esc(l.key)}">
+        <img src="${l.image}" alt=""><div><a class="cart__name" href="#/san-pham/${l.p.slug}">${esc(l.p.name)}</a>${l.model ? `<div class="cart__variant">Phân loại: ${esc(l.model)}</div>` : ''}<div class="price" style="font-size:14px">${fmt(l.price)}</div></div>
+        <div class="cart__right"><div class="qty"><button data-q="-1">−</button><input value="${l.qty}" data-qin inputmode="numeric"><button data-q="1">+</button></div><b>${fmt(l.price * l.qty)}</b><button class="link-danger" data-rm>Xóa</button></div></div>`).join('')}</div>
+      <aside class="summary"><h3>Tóm tắt đơn hàng</h3><div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div><div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
+        ${t.shipping ? `<div class="note-free">Mua thêm ${fmt(FREESHIP - t.subtotal)} để được miễn phí vận chuyển</div>` : '<div class="note-free">🎉 Đơn hàng được miễn phí vận chuyển</div>'}
+        <div class="row total"><span>Tổng cộng</span><span>${fmt(t.total)}</span></div>
+        <a class="btn btn--lg btn--block" href="#/thanh-toan" style="margin-top:12px">Đặt hàng – Thanh toán khi nhận</a><a class="btn btn--ghost btn--block" href="#/" style="margin-top:8px">Tiếp tục mua sắm</a></aside></div>`;
+    app.querySelectorAll('.cart__item').forEach(el => {
+      const key = el.dataset.key; const item = state.cart.find(i => i.key === key);
+      el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { item.qty = Math.max(1, Math.min(99, item.qty + (+b.dataset.q))); saveCart(); pageCart(); });
+      el.querySelector('[data-qin]').onchange = e => { item.qty = Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)); saveCart(); pageCart(); };
+      el.querySelector('[data-rm]').onclick = () => { state.cart = state.cart.filter(i => i.key !== key); saveCart(); pageCart(); };
+    });
+  }
+
+  function pageCheckout() {
+    const lines = cartLines(); const t = totals(lines);
+    if (!lines.length) return (location.hash = '#/gio-hang');
+    const saved = JSON.parse(localStorage.getItem('mq_customer') || '{}');
+    app.innerHTML = crumb(['<a href="#/gio-hang">Giỏ hàng</a>', 'Thanh toán']) + `<div class="checkout">
+      <form class="form" id="coForm" novalidate><h2>Thông tin giao hàng</h2>
+        <div class="field"><label>Họ và tên *</label><input name="name" value="${esc(saved.name || '')}" placeholder="Nguyễn Văn A" required><div class="err">Vui lòng nhập họ tên</div></div>
+        <div class="field"><label>Số điện thoại *</label><input name="phone" value="${esc(saved.phone || '')}" placeholder="09xx xxx xxx" inputmode="tel" required><div class="err">Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0)</div></div>
+        <div class="field"><label>Địa chỉ nhận hàng *</label><textarea name="address" rows="3" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" required>${esc(saved.address || '')}</textarea><div class="err">Vui lòng nhập địa chỉ đầy đủ (số nhà, đường, phường/xã, quận/huyện, tỉnh/thành)</div></div>
+        <div class="field"><label>Ghi chú (không bắt buộc)</label><textarea name="note" rows="2" placeholder="Ví dụ: giao giờ hành chính, gọi trước khi giao…"></textarea></div>
+        <h2>Phương thức thanh toán</h2>
+        <div class="pay"><span class="ic">💵</span><div><b>Thanh toán khi nhận hàng (COD)</b><small>Bạn kiểm tra hàng rồi mới thanh toán tiền mặt cho shipper.</small></div></div>
+        <p class="muted" style="font-size:13px">Bằng việc đặt hàng, bạn đồng ý với <a href="#/chinh-sach" style="color:var(--brand-dark)">chính sách giao hàng &amp; đổi trả</a>.</p>
+        <button class="btn btn--lg btn--block" type="submit" id="coSubmit">Xác nhận đặt hàng – ${fmt(t.total)}</button>
+      </form>
+      <aside class="summary"><h3>Đơn hàng (${lines.reduce((a, l) => a + l.qty, 0)} sản phẩm)</h3><div class="mini-list">${lines.map(l => `<div class="mini"><img src="${l.image}" alt=""><span>${esc(l.p.name)}${l.model ? ` <i class="muted">(${esc(l.model)})</i>` : ''}</span><b>×${l.qty}</b></div>`).join('')}</div>
+        <div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div><div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div><div class="row total"><span>Tổng thanh toán</span><span>${fmt(t.total)}</span></div></aside></div>`;
+    const form = $('#coForm');
+    form.onsubmit = async e => {
+      e.preventDefault();
+      const f = Object.fromEntries(new FormData(form).entries());
+      const set = (n, ok) => form.querySelector(`[name=${n}]`).closest('.field').classList.toggle('invalid', !ok);
+      const okName = f.name.trim().length >= 2, okPhone = /^(0|\+84)\d{9}$/.test(f.phone.replace(/\s/g, '')), okAddr = f.address.trim().length >= 8;
+      set('name', okName); set('phone', okPhone); set('address', okAddr);
+      if (!(okName && okPhone && okAddr)) { form.querySelector('.invalid input,.invalid textarea')?.focus(); return; }
+      const btn = $('#coSubmit'); btn.disabled = true; btn.textContent = 'Đang gửi đơn hàng…';
+      localStorage.setItem('mq_customer', JSON.stringify({ name: f.name, phone: f.phone, address: f.address }));
+      const payload = { customer: f, items: state.cart.map(i => ({ id: i.id, qty: i.qty, model: i.model })) };
+      try {
+        let j;
+        if (SB) { j = { order: await rpc('place_order', { payload }) }; }
+        else {
+          const ep = CFG.orderEndpoint || '';
+          // Apps Script: gửi text/plain để tránh preflight CORS
+          const r = ep ? await fetch(ep, { method: 'POST', body: JSON.stringify(payload) })
+                       : await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          j = await r.json();
+          if (!r.ok || j.error) throw new Error(j.error || 'Lỗi đặt hàng');
+        }
+        state.cart = []; saveCart();
+        sessionStorage.setItem('mq_last_order', JSON.stringify(j.order));
+        location.hash = '#/dat-hang-thanh-cong/' + j.order.code;
+      } catch (err) {
+        // Không có máy chủ (chạy tĩnh): vẫn tạo đơn tạm để khách thấy xác nhận
+        if (!SB && (err instanceof TypeError || /JSON/.test(err.message))) {
+          const order = { code: 'MQ' + Date.now().toString(36).toUpperCase().slice(-6), createdAt: new Date().toISOString(), status: 'new', payment: 'COD', customer: f, items: lines.map(l => ({ name: l.p.name, variant: l.model, price: l.price, qty: l.qty, image: l.image })), ...t, offline: true };
+          const list = JSON.parse(localStorage.getItem('mq_orders_offline') || '[]'); list.push(order); localStorage.setItem('mq_orders_offline', JSON.stringify(list));
+          state.cart = []; saveCart(); sessionStorage.setItem('mq_last_order', JSON.stringify(order)); location.hash = '#/dat-hang-thanh-cong/' + order.code; return;
+        }
+        toast('❌ ' + err.message); btn.disabled = false; btn.textContent = `Xác nhận đặt hàng – ${fmt(t.total)}`;
+      }
+    };
+    window.scrollTo(0, 0);
+  }
+
+  const STATUS = { new: 'Mới đặt', confirmed: 'Đã xác nhận', shipping: 'Đang giao', done: 'Hoàn thành', cancelled: 'Đã hủy' };
+  function orderBox(o) {
+    return `<div class="order-box"><div class="row"><span>Mã đơn</span><b>${esc(o.code)}</b></div><div class="row"><span>Trạng thái</span><span class="status ${o.status}">${STATUS[o.status] || o.status}</span></div>
+      <div class="row"><span>Người nhận</span><span>${esc(o.customer.name)} – ${esc(o.customer.phone)}</span></div><div class="row"><span>Địa chỉ</span><span style="text-align:right;max-width:60%">${esc(o.customer.address)}</span></div>
+      <hr style="border:0;border-top:1px dashed var(--line)">${o.items.map(i => `<div class="row"><span>${esc(i.name.slice(0, 55))}${i.name.length > 55 ? '…' : ''}${i.variant ? ` <i class="muted">(${esc(i.variant)})</i>` : ''} ×${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
+      <div class="row"><span>Phí vận chuyển</span><span>${o.shipping ? fmt(o.shipping) : 'Miễn phí'}</span></div><div class="row" style="font-weight:700;font-size:16px"><span>Tổng thanh toán khi nhận</span><span style="color:var(--brand-dark)">${fmt(o.total)}</span></div></div>`;
+  }
+  function pageSuccess(code) {
+    const o = JSON.parse(sessionStorage.getItem('mq_last_order') || 'null');
+    app.innerHTML = `<div class="success"><div class="big">🎉</div><h1>Đặt hàng thành công!</h1><p>Cảm ơn bạn đã mua sắm tại M&amp;Q Toys. Shop sẽ gọi xác nhận trong thời gian sớm nhất. Bạn thanh toán khi nhận hàng.</p><div class="code">${esc(code)}</div>
+      ${o && o.code === code ? orderBox(o) : ''}${o && o.offline ? '<p class="muted" style="font-size:13px">⚠️ Website đang chạy ở chế độ tĩnh (không có máy chủ), đơn hàng được lưu tạm trên trình duyệt này.</p>' : ''}
+      <a class="btn btn--lg" href="#/">Tiếp tục mua sắm</a></div>`;
+    window.scrollTo(0, 0);
+  }
+  function pageTrack() {
+    app.innerHTML = crumb(['Tra cứu đơn hàng']) + `<div class="form" style="max-width:520px;margin:20px auto"><h2>Tra cứu đơn hàng</h2><form id="trackForm"><div class="field"><label>Mã đơn hàng</label><input name="code" placeholder="MQxxxxxx" required></div><div class="field"><label>Số điện thoại đặt hàng</label><input name="phone" required inputmode="tel"></div><button class="btn btn--block">Tra cứu</button></form><div id="trackResult" style="margin-top:16px"></div></div>`;
+    $('#trackForm').onsubmit = async e => {
+      e.preventDefault(); const f = Object.fromEntries(new FormData(e.target).entries());
+      const out = $('#trackResult'); out.innerHTML = '<p class="muted">Đang tìm…</p>';
+      try {
+        const code = f.code.trim().toUpperCase(), phone = f.phone.replace(/\s/g, '');
+        let j;
+        if (SB) { j = await rpc('get_order', { p_code: code, p_phone: phone }); if (!j) throw new Error('Không tìm thấy đơn hàng'); }
+        else {
+          const ep = CFG.orderEndpoint || '';
+          const r = await fetch(ep ? `${ep}?code=${encodeURIComponent(code)}&phone=${encodeURIComponent(phone)}` : `/api/orders/${encodeURIComponent(code)}?phone=${encodeURIComponent(phone)}`);
+          j = await r.json(); if (!r.ok || j.error) throw new Error(j.error);
+        }
+        out.innerHTML = orderBox(j);
+      }
+      catch (err) { out.innerHTML = `<p style="color:var(--danger)">${esc(err.message || 'Không tìm thấy đơn hàng')}</p>`; }
+    };
+  }
+  function pagePolicy() {
+    app.innerHTML = `<div class="policy"><h1>Chính sách giao hàng &amp; đổi trả</h1>
+      <h3>🚚 Giao hàng</h3><p>Giao hàng toàn quốc qua các đơn vị vận chuyển uy tín. Thời gian giao 1–3 ngày nội thành TP.HCM, 3–6 ngày các tỉnh. Phí vận chuyển 25.000₫, <b>miễn phí cho đơn từ 300.000₫</b>.</p>
+      <h3>💵 Thanh toán khi nhận hàng (COD)</h3><p>Bạn được kiểm tra ngoại quan sản phẩm trước khi thanh toán tiền mặt cho nhân viên giao hàng. Shop sẽ gọi điện xác nhận đơn trước khi giao.</p>
+      <h3>🔄 Đổi trả</h3><p>Đổi trả trong vòng 7 ngày kể từ khi nhận hàng nếu sản phẩm lỗi do nhà sản xuất, giao sai mẫu hoặc thiếu chi tiết. Sản phẩm còn nguyên tem, hộp, chưa qua sử dụng. Shop chịu phí vận chuyển đổi trả trong các trường hợp này.</p>
+      <h3>📞 Liên hệ</h3><p>Nhắn tin qua gian hàng Shopee <a href="${state.db.shop.shopee}" target="_blank" rel="noopener" style="color:var(--brand-dark)">mqhometech</a> để được hỗ trợ nhanh nhất.</p></div>`;
+  }
+  function notFound() { app.innerHTML = `<div class="empty"><div class="big">🙈</div><p>Không tìm thấy trang.</p><a class="btn" href="#/">Về trang chủ</a></div>`; }
+
+  // ---------- Router ----------
+  function route() {
+    if (!state.db) return;
+    const [path, qs] = location.hash.replace(/^#/, '').split('?');
+    const q = new URLSearchParams(qs || '');
+    const seg = path.split('/').filter(Boolean);
+    document.querySelectorAll('#catbar a').forEach(a => a.classList.remove('active'));
+    if (!seg.length) return pageHome();
+    switch (seg[0]) {
+      case 'danh-muc': return pageCategory(decodeURIComponent(seg[1] || ''), q.get('q') || '');
+      case 'tim-kiem': return pageCategory('', q.get('q') || '');
+      case 'san-pham': return pageProduct(decodeURIComponent(seg[1] || ''));
+      case 'gio-hang': return pageCart();
+      case 'thanh-toan': return pageCheckout();
+      case 'dat-hang-thanh-cong': return pageSuccess(seg[1] || '');
+      case 'tra-cuu': return pageTrack();
+      case 'chinh-sach': return pagePolicy();
+      default: return notFound();
+    }
+  }
+  window.addEventListener('hashchange', route);
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-add]'); if (!b) return;
+    const p = byId(b.dataset.add);
+    if (p.models.length) location.hash = '#/san-pham/' + p.slug; else addToCart(p.id, 1);
+  });
+  $('#searchForm').onsubmit = e => { e.preventDefault(); const q = $('#searchInput').value.trim(); if (q) location.hash = '#/tim-kiem?q=' + encodeURIComponent(q); };
+
+  // ---------- Tiện ích ----------
+  let toastT; function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200); }
+  function lightbox(src) { const lb = $('#lightbox'); lb.querySelector('img').src = src; lb.hidden = false; }
+  $('#lightbox').onclick = () => { $('#lightbox').hidden = true; };
+
+  app.innerHTML = '<div class="skeleton" style="margin:20px 0"></div><div class="grid">' + '<div class="skeleton"></div>'.repeat(5) + '</div>';
+  loadData().then(route).catch(err => { app.innerHTML = `<div class="empty">Không tải được dữ liệu sản phẩm.<br><small>${esc(err.message)}</small></div>`; });
+})();

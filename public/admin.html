@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Quản trị – M&Q Toys</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  body{padding:0}
+  .adm{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+  .side{background:#1f2328;color:#d1d5db;padding:20px 14px}
+  .side .logo__text{color:#fff}
+  .side nav{display:grid;gap:4px;margin-top:20px}
+  .side nav button{text-align:left;border:0;background:none;color:#d1d5db;padding:10px 12px;border-radius:10px;font-weight:500}
+  .side nav button.active,.side nav button:hover{background:#374151;color:#fff}
+  .main{padding:22px 26px;background:var(--bg)}
+  .login{max-width:380px;margin:80px auto}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:13.5px}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{background:#fafafa;font-size:12.5px;color:var(--muted);white-space:nowrap}
+  td input,td select,td textarea{padding:5px 8px;border-radius:8px;border:1px solid var(--line);font-size:13px;width:100%}
+  td input[type=number]{width:110px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:14px 0}
+  .stat{background:#fff;padding:14px 18px;border-radius:12px;box-shadow:var(--shadow)}
+  .stat b{display:block;font-size:22px;color:var(--brand-dark)}
+  .bar{display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap}
+  .bar input,.bar select{padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:#fff}
+  .thumb{width:44px;height:44px;object-fit:cover;border-radius:8px}
+  .items{font-size:12.5px;color:#444}
+  .sm{font-size:12px;color:var(--muted)}
+  .btn--sm{padding:6px 12px;font-size:12.5px}
+  .row-hidden{opacity:.5}
+  @media(max-width:800px){.adm{grid-template-columns:1fr}.side nav{display:flex;flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<div id="login" class="form login"><div class="logo" style="margin-bottom:14px"><span class="logo__mark">MQ</span><span class="logo__text">Quản trị</span></div>
+  <div id="loginSb"><div class="field"><label>Email</label><input id="email" type="email" autocomplete="username"></div><div class="field"><label>Mật khẩu</label><input id="pass" type="password" autocomplete="current-password"></div>
+    <p class="sm">Tài khoản tạo trong Supabase → Authentication → Users → Add user.</p></div>
+  <div id="loginNode" class="hidden"><div class="field"><label>Mã quản trị (ADMIN_KEY)</label><input id="key" type="password"></div></div>
+  <button class="btn btn--block" id="loginBtn">Đăng nhập</button><p id="loginErr" style="color:var(--danger);font-size:13px"></p></div>
+
+<div id="adm" class="adm hidden">
+  <aside class="side"><div class="logo"><span class="logo__mark">MQ</span><span class="logo__text">M&amp;Q <b>Admin</b></span></div>
+    <nav id="nav"><button data-v="dash" class="active">📊 Tổng quan</button><button data-v="orders">📦 Đơn hàng</button><button data-v="products">🧸 Sản phẩm</button><button data-v="customers">👥 Khách hàng</button><button data-v="reviews">⭐ Đánh giá</button><button data-v="settings">⚙️ Cài đặt</button><a href="/" style="padding:10px 12px;display:block">↩ Xem cửa hàng</a><button id="logout">🚪 Đăng xuất</button></nav></aside>
+  <main class="main" id="view"></main>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/config.js"></script>
+<script>
+const $=s=>document.querySelector(s); const fmt=n=>(+n||0).toLocaleString('vi-VN')+'₫';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ST={new:'Mới đặt',confirmed:'Đã xác nhận',shipping:'Đang giao',done:'Hoàn thành',cancelled:'Đã hủy'};
+const CFG=window.MQ_CONFIG||{}; const SB=CFG.supabaseUrl?{url:CFG.supabaseUrl.replace(/\/$/,''),key:CFG.supabaseAnonKey}:null;
+let token=sessionStorage.getItem('mq_admin_token')||''; let toastT;
+const toast=m=>{const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);};
+
+// ---------- Supabase REST ----------
+async function sb(path, opt={}){
+  const r=await fetch(`${SB.url}/rest/v1/${path}`,{...opt,headers:{apikey:SB.key,Authorization:'Bearer '+token,'Content-Type':'application/json',Prefer:opt.prefer||'return=representation',...(opt.headers||{})}});
+  if(r.status===401){logout();throw new Error('Phiên đăng nhập hết hạn');}
+  const j=r.status===204?null:await r.json().catch(()=>null);
+  if(!r.ok) throw new Error((j&&(j.message||j.error))||'Lỗi '+r.status);
+  return j;
+}
+async function login(){
+  $('#loginErr').textContent='';
+  try{
+    if(SB){
+      const r=await fetch(`${SB.url}/auth/v1/token?grant_type=password`,{method:'POST',headers:{apikey:SB.key,'Content-Type':'application/json'},body:JSON.stringify({email:$('#email').value.trim(),password:$('#pass').value})});
+      const j=await r.json(); if(!r.ok) throw new Error(j.error_description||j.msg||'Sai email hoặc mật khẩu');
+      token=j.access_token;
+    } else { token=$('#key').value.trim(); const r=await fetch('/api/admin/orders',{headers:{'x-admin-key':token}}); if(r.status===401) throw new Error('Sai mã quản trị'); }
+    sessionStorage.setItem('mq_admin_token',token); $('#login').classList.add('hidden'); $('#adm').classList.remove('hidden'); show('dash');
+  }catch(e){$('#loginErr').textContent=e.message;}
+}
+function logout(){token='';sessionStorage.removeItem('mq_admin_token');$('#adm').classList.add('hidden');$('#login').classList.remove('hidden');}
+
+// ---------- Views ----------
+const V={};
+V.dash=async()=>{
+  if(!SB){ const o=await nodeOrders(); return `<h1>Tổng quan</h1><div class="stats"><div class="stat"><b>${o.length}</b>Tổng đơn</div><div class="stat"><b>${o.filter(x=>x.status==='new').length}</b>Đơn mới</div><div class="stat"><b>${fmt(o.filter(x=>x.status!=='cancelled').reduce((a,x)=>a+x.total,0))}</b>Doanh thu</div></div><p class="sm">Đang chạy với server.js. Kết nối Supabase (config.js) để quản lý sản phẩm, khách hàng, đánh giá.</p>`; }
+  const d=(await sb('v_dashboard'))[0]; const recent=await sb('orders?order=created_at.desc&limit=8');
+  return `<h1>Tổng quan</h1><div class="stats"><div class="stat"><b>${d.total_orders}</b>Tổng đơn</div><div class="stat"><b>${d.new_orders}</b>Đơn mới cần xử lý</div><div class="stat"><b>${fmt(d.revenue)}</b>Doanh thu (chưa hủy)</div><div class="stat"><b>${d.customers}</b>Khách hàng</div><div class="stat"><b>${d.active_products}</b>Sản phẩm đang bán</div><div class="stat"><b>${d.pending_reviews}</b>Đánh giá chờ duyệt</div></div>
+    <h3>Đơn gần đây</h3><table><tr><th>Mã</th><th>Thời gian</th><th>Khách</th><th>Tổng</th><th>Trạng thái</th></tr>${recent.map(o=>`<tr><td><b>${esc(o.code)}</b></td><td>${new Date(o.created_at).toLocaleString('vi-VN')}</td><td>${esc(o.name)}<br><span class="sm">${esc(o.phone)}</span></td><td>${fmt(o.total)}</td><td><span class="status ${o.status}">${ST[o.status]}</span></td></tr>`).join('')||'<tr><td colspan=5 class="sm">Chưa có đơn.</td></tr>'}</table>`;
+};
+async function nodeOrders(){const r=await fetch('/api/admin/orders',{headers:{'x-admin-key':token}});return r.json();}
+V.orders=async(q={})=>{
+  let orders;
+  if(SB){ let p='orders?select=*,order_items(*)&order=created_at.desc&limit=200'; if(q.status) p+=`&status=eq.${q.status}`; if(q.s) p+=`&or=(code.ilike.*${encodeURIComponent(q.s)}*,phone.ilike.*${encodeURIComponent(q.s)}*,name.ilike.*${encodeURIComponent(q.s)}*)`; orders=await sb(p); }
+  else { orders=(await nodeOrders()).map(o=>({...o,order_items:o.items,created_at:o.createdAt,name:o.customer.name,phone:o.customer.phone,address:o.customer.address,note:o.customer.note})); if(q.status) orders=orders.filter(o=>o.status===q.status); }
+  return `<h1>Đơn hàng</h1><div class="bar"><input id="oS" placeholder="Tìm mã đơn / SĐT / tên" value="${esc(q.s||'')}"><select id="oSt"><option value="">Tất cả trạng thái</option>${Object.entries(ST).map(([k,v])=>`<option value="${k}" ${q.status===k?'selected':''}>${v}</option>`).join('')}</select><button class="btn btn--sm" onclick="show('orders',{s:$('#oS').value,status:$('#oSt').value})">Lọc</button><button class="btn btn--ghost btn--sm" onclick="exportCsv()">⬇ Xuất CSV</button></div>
+    <table><tr><th>Mã đơn</th><th>Thời gian</th><th>Khách hàng</th><th>Sản phẩm</th><th>Tổng COD</th><th>Trạng thái</th>${SB?'<th>Ghi chú nội bộ</th>':''}</tr>
+    ${orders.map(o=>`<tr><td><b>${esc(o.code)}</b></td><td>${new Date(o.created_at).toLocaleString('vi-VN')}</td><td><b>${esc(o.name)}</b><br>📞 <a href="tel:${esc(o.phone)}">${esc(o.phone)}</a><br><span class="sm">${esc(o.address)}</span>${o.note?`<br><span class="sm">📝 ${esc(o.note)}</span>`:''}</td>
+      <td class="items">${(o.order_items||[]).map(i=>`• ${esc(i.name.slice(0,60))}${i.variant?` (${esc(i.variant)})`:''} ×${i.qty}`).join('<br>')}</td><td><b>${fmt(o.total)}</b><br><span class="sm">ship ${fmt(o.shipping)}</span></td>
+      <td><select onchange="setStatus('${esc(o.code)}',this.value)">${Object.entries(ST).map(([k,v])=>`<option value="${k}" ${o.status===k?'selected':''}>${v}</option>`).join('')}</select></td>
+      ${SB?`<td><textarea rows="2" onchange="sb('orders?code=eq.${esc(o.code)}',{method:'PATCH',body:JSON.stringify({admin_note:this.value})}).then(()=>toast('Đã lưu'))">${esc(o.admin_note||'')}</textarea></td>`:''}</tr>`).join('')||'<tr><td colspan=7 class="sm">Không có đơn.</td></tr>'}</table>`;
+};
+window.setStatus=async(code,status)=>{ try{ if(SB) await sb(`orders?code=eq.${code}`,{method:'PATCH',body:JSON.stringify({status})}); else await fetch('/api/admin/orders/'+code,{method:'PATCH',headers:{'Content-Type':'application/json','x-admin-key':token},body:JSON.stringify({status})}); toast('Đã cập nhật '+code);}catch(e){toast('❌ '+e.message);} };
+window.exportCsv=async()=>{ const o=SB?await sb('orders?select=*,order_items(*)&order=created_at.desc'):(await nodeOrders()).map(o=>({...o,order_items:o.items,created_at:o.createdAt,name:o.customer.name,phone:o.customer.phone,address:o.customer.address}));
+  const rows=[['Mã đơn','Thời gian','Trạng thái','Khách','SĐT','Địa chỉ','Sản phẩm','Tổng']].concat(o.map(x=>[x.code,new Date(x.created_at).toLocaleString('vi-VN'),ST[x.status],x.name,x.phone,x.address,(x.order_items||[]).map(i=>`${i.name}${i.variant?' ('+i.variant+')':''} x${i.qty}`).join(' | '),x.total]));
+  const csv='﻿'+rows.map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n'); const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='don-hang.csv'; a.click(); };
+
+V.products=async(q={})=>{
+  if(!SB) return '<h1>Sản phẩm</h1><p class="sm">Chức năng này cần Supabase. Khi chạy server.js, sửa trực tiếp file data/products.json.</p>';
+  let p='products?select=id,name,slug,price,price_before,discount,stock,sold,is_active,product_images(url,sort_order),product_categories(category_id)&order=sold.desc&limit=300'; if(q.s) p+=`&name=ilike.*${encodeURIComponent(q.s)}*`;
+  const list=await sb(p); const cats=await sb('categories?order=sort_order');
+  return `<h1>Sản phẩm <span class="sm">(${list.length})</span></h1><div class="bar"><input id="pS" placeholder="Tìm tên sản phẩm" value="${esc(q.s||'')}"><button class="btn btn--sm" onclick="show('products',{s:$('#pS').value})">Tìm</button><span class="sm">Sửa giá / tồn kho rồi rời khỏi ô để lưu. Tồn kho để trống = không giới hạn.</span></div>
+    <table><tr><th></th><th>Tên</th><th>Giá bán</th><th>Giá gốc</th><th>Tồn kho</th><th>Đã bán</th><th>Danh mục</th><th>Hiển thị</th></tr>
+    ${list.map(x=>{const img=(x.product_images||[]).sort((a,b)=>a.sort_order-b.sort_order)[0];const cids=(x.product_categories||[]).map(c=>c.category_id);return `<tr class="${x.is_active?'':'row-hidden'}"><td>${img?`<img class="thumb" src="${img.url}">`:''}</td><td><a href="/#/san-pham/${x.slug}" target="_blank">${esc(x.name)}</a><br><span class="sm">${x.id}</span></td>
+      <td><input type="number" value="${x.price}" onchange="upd('${x.id}',{price:+this.value})"></td><td><input type="number" value="${x.price_before||''}" onchange="upd('${x.id}',{price_before:this.value?+this.value:null,discount:this.value?Math.round((1-${x.price}/+this.value)*100):0})"></td>
+      <td><input type="number" value="${x.stock??''}" placeholder="∞" onchange="upd('${x.id}',{stock:this.value===''?null:+this.value})"></td><td>${x.sold}</td>
+      <td><span class="sm">${cids.map(c=>esc((cats.find(k=>k.id===c)||{}).name||c)).join(', ')}</span></td>
+      <td><input type="checkbox" ${x.is_active?'checked':''} onchange="upd('${x.id}',{is_active:this.checked})"></td></tr>`;}).join('')}</table>`;
+};
+window.upd=async(id,body)=>{try{await sb(`products?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu');}catch(e){toast('❌ '+e.message);}};
+
+V.customers=async()=>{ if(!SB) return '<h1>Khách hàng</h1><p class="sm">Cần Supabase.</p>';
+  const c=await sb('customers?order=total_spent.desc&limit=300');
+  return `<h1>Khách hàng <span class="sm">(${c.length})</span></h1><table><tr><th>Tên</th><th>SĐT</th><th>Địa chỉ</th><th>Số đơn</th><th>Tổng chi</th><th>Lần cuối</th></tr>${c.map(x=>`<tr><td><b>${esc(x.name)}</b></td><td><a href="tel:${esc(x.phone)}">${esc(x.phone)}</a></td><td class="sm">${esc(x.address||'')}</td><td>${x.order_count}</td><td>${fmt(x.total_spent)}</td><td class="sm">${new Date(x.updated_at).toLocaleDateString('vi-VN')}</td></tr>`).join('')||'<tr><td colspan=6 class="sm">Chưa có khách.</td></tr>'}</table>`;
+};
+V.reviews=async()=>{ if(!SB) return '<h1>Đánh giá</h1><p class="sm">Cần Supabase.</p>';
+  const r=await sb('reviews?select=*,products(name)&order=is_approved.asc,created_at.desc&limit=200');
+  return `<h1>Đánh giá</h1><p class="sm">Đánh giá từ website chờ duyệt hiện lên đầu. Đánh giá Shopee đã được duyệt sẵn.</p><table><tr><th>Sản phẩm</th><th>Khách</th><th>Sao</th><th>Nội dung</th><th>Nguồn</th><th>Duyệt</th><th></th></tr>
+    ${r.map(x=>`<tr class="${x.is_approved?'':''}"><td class="sm">${esc((x.products||{}).name||x.product_id).slice(0,50)}</td><td>${esc(x.user_name)}</td><td><span class="stars">${'★'.repeat(x.star)}</span></td><td class="sm">${esc(x.comment).slice(0,160)}${x.shop_reply?`<br><i>Shop: ${esc(x.shop_reply).slice(0,80)}</i>`:''}</td><td class="sm">${x.source}</td>
+      <td><input type="checkbox" ${x.is_approved?'checked':''} onchange="sb('reviews?id=eq.${x.id}',{method:'PATCH',body:JSON.stringify({is_approved:this.checked})}).then(()=>toast('Đã lưu'))"></td><td><button class="link-danger" onclick="if(confirm('Xóa đánh giá này?')) sb('reviews?id=eq.${x.id}',{method:'DELETE'}).then(()=>show('reviews'))">Xóa</button></td></tr>`).join('')}</table>`;
+};
+V.settings=async()=>{ if(!SB) return '<h1>Cài đặt</h1><p class="sm">Cần Supabase. Với server.js, sửa SHIP/FREESHIP trong app.js và server.js.</p>';
+  const s=Object.fromEntries((await sb('settings')).map(x=>[x.key,x.value])); const shop=s.shop||{};
+  return `<h1>Cài đặt</h1><div class="form" style="max-width:560px"><div class="field"><label>Phí vận chuyển (₫)</label><input id="sFee" type="number" value="${s.shipping_fee}"></div><div class="field"><label>Miễn phí ship cho đơn từ (₫)</label><input id="sFree" type="number" value="${s.freeship_from}"></div>
+    <div class="field"><label>Tên shop</label><input id="sName" value="${esc(shop.name||'')}"></div><div class="field"><label>Mô tả</label><textarea id="sDesc" rows="2">${esc(shop.description||'')}</textarea></div><div class="field"><label>Địa chỉ</label><input id="sLoc" value="${esc(shop.location||'')}"></div><div class="field"><label>Link Shopee</label><input id="sShopee" value="${esc(shop.shopee||'')}"></div>
+    <button class="btn" onclick="saveSettings()">Lưu cài đặt</button></div>`;
+};
+window.saveSettings=async()=>{ try{ const shop=(await sb('settings?key=eq.shop'))[0].value; Object.assign(shop,{name:$('#sName').value,description:$('#sDesc').value,location:$('#sLoc').value,shopee:$('#sShopee').value});
+  await sb('settings',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{key:'shipping_fee',value:+$('#sFee').value},{key:'freeship_from',value:+$('#sFree').value},{key:'shop',value:shop}])}); toast('Đã lưu cài đặt'); }catch(e){toast('❌ '+e.message);} };
+
+window.show=async(v,q)=>{ document.querySelectorAll('#nav button[data-v]').forEach(b=>b.classList.toggle('active',b.dataset.v===v)); $('#view').innerHTML='<p class="sm">Đang tải…</p>'; try{ $('#view').innerHTML=await V[v](q||{}); }catch(e){ $('#view').innerHTML=`<p style="color:var(--danger)">${esc(e.message)}</p>`; } };
+document.querySelectorAll('#nav button[data-v]').forEach(b=>b.onclick=()=>show(b.dataset.v));
+$('#logout').onclick=logout; $('#loginBtn').onclick=login; document.querySelectorAll('#login input').forEach(i=>i.onkeydown=e=>{if(e.key==='Enter')login();});
+if(!SB){$('#loginSb').classList.add('hidden');$('#loginNode').classList.remove('hidden');}
+if(token){$('#login').classList.add('hidden');$('#adm').classList.remove('hidden');show('dash');}
+</script>
+</body>
+</html>
