@@ -328,3 +328,11 @@ input,select,textarea{font:inherit}
 .shop-layout .hero{margin-top:0}
 .shop-layout .hero__side{grid-template-columns:1fr}
 @media (min-width:901px) and (max-width:1200px){ .shop-layout .hero{grid-template-columns:1fr} .shop-layout .hero__side{grid-template-columns:repeat(3,1fr)} }
+
+/* ===== Khu vực đánh giá luôn hiển thị ===== */
+#danh-gia{scroll-margin-top:120px}
+.meta-link{color:var(--brand-dark);border-bottom:1px dashed var(--brand-dark)}
+.meta-link:hover{color:var(--pink)}
+.rv__text--empty{color:var(--muted);font-style:italic}
+.rv-empty{text-align:center;padding:26px 16px;color:var(--muted)}
+.rv-empty p{margin:8px 0 0;font-size:15px;color:var(--ink)}

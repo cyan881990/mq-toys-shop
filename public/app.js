@@ -217,7 +217,7 @@
           <h1>${esc(p.name)}</h1>
           <div class="pd__meta">
             ${p.rating ? `<span><b>${Number(p.rating).toFixed(1)}</b> ${stars(p.rating)}</span>` : ''}
-            <span><b>${p.ratingCount || p.reviews.length}</b> đánh giá</span>
+            <a href="#danh-gia" class="meta-link" id="goReviews"><b>${p.ratingCount || p.reviews.length}</b> đánh giá</a>
             <span><b>${p.sold}</b> đã bán</span>
             ${p.stock === null || p.stock === undefined ? '' : (p.stock > 0 ? `<span class="${p.stock <= 5 ? 'stock-low' : ''}">Còn <b>${p.stock}</b> sản phẩm</span>` : '<span class="stock-out">Tạm hết hàng</span>')}
           </div>
@@ -229,19 +229,24 @@
           <div class="pd__trust"><div>💵 Thanh toán khi nhận hàng</div><div>🔄 Đổi trả trong 7 ngày nếu lỗi</div><div>🚚 Freeship đơn từ 300.000₫</div><div>✅ Hàng chính hãng, nguyên seal</div></div>
         </div>
       </div>
-      <div class="tabs"><div class="tabs__nav"><button class="active" data-tab="desc">Mô tả sản phẩm</button><button data-tab="spec">Thông số</button><button data-tab="rv">Đánh giá (${p.reviews.length})</button></div>
+      <div class="tabs"><div class="tabs__nav"><button class="active" data-tab="desc">Mô tả sản phẩm</button><button data-tab="spec">Thông số</button></div>
         <div class="panel" id="tab-desc"><div class="desc">${esc(p.description || 'Đang cập nhật mô tả.')}</div></div>
         <div class="panel hidden" id="tab-spec"><div class="attrs">${p.attrs.map(a => `<div><span>${esc(a.n)}</span><span>${esc(a.v)}</span></div>`).join('') || '<span class="muted">Chưa có thông số.</span>'}${p.catpath.length ? `<div><span>Ngành hàng</span><span>${esc(p.catpath.join(' › '))}</span></div>` : ''}</div></div>
-        <div class="panel hidden" id="tab-rv">
+        </div>
+      <section class="section" id="danh-gia">
+        <div class="section__head"><h2>⭐ Đánh giá sản phẩm ${p.reviews.length ? `(${p.reviews.length})` : ''}</h2></div>
+        <div class="panel">
           <div class="rv-sum"><div class="rv-sum__big"><b>${Number(p.rating || 0).toFixed(1)}</b>${stars(p.rating)}<div class="muted" style="font-size:12px">${total} lượt đánh giá</div></div>
             <div class="rv-bars">${[5, 4, 3, 2, 1].map(s => `<div class="rv-bar"><span>${s} ★</span><i style="--w:${total ? (dist[s - 1] / total * 100) : 0}%"></i><span class="muted">${dist[s - 1] || 0}</span></div>`).join('')}</div></div>
-          ${p.reviews.length ? p.reviews.map(review).join('') : '<p class="muted">Chưa có đánh giá cho sản phẩm này.</p>'}
+          ${p.reviews.length
+            ? [...p.reviews].sort((a, b) => ((b.comment ? 2 : 0) + (b.images.length ? 1 : 0)) - ((a.comment ? 2 : 0) + (a.images.length ? 1 : 0))).map(review).join('')
+            : `<div class="rv-empty"><div style="font-size:42px">💬</div><p>Sản phẩm này chưa có đánh giá.<br><span class="muted">Hãy là người đầu tiên chia sẻ cảm nhận với những khách hàng khác!</span></p></div>`}
           ${SB ? `<form id="rvForm" class="form" style="margin-top:20px;box-shadow:none;border:1px solid var(--line)"><h2 style="font-size:16px">Viết đánh giá của bạn</h2>
             <div class="field"><label>Tên hiển thị</label><input name="name" required maxlength="60" placeholder="Ví dụ: Mẹ Bin"></div>
             <div class="field"><label>Số sao</label><select name="star"><option value="5">5 ★ Tuyệt vời</option><option value="4">4 ★ Hài lòng</option><option value="3">3 ★ Bình thường</option><option value="2">2 ★ Không hài lòng</option><option value="1">1 ★ Tệ</option></select></div>
             <div class="field"><label>Nhận xét</label><textarea name="comment" rows="3" required maxlength="1000"></textarea></div>
             <button class="btn">Gửi đánh giá</button> <span class="muted" style="font-size:12.5px">Đánh giá sẽ hiển thị sau khi shop duyệt.</span></form>` : ''}
-        </div></div>
+        </div></section>
       ${related(p).length ? `<section class="section"><div class="section__head"><h2>Sản phẩm liên quan</h2></div><div class="grid">${related(p).map(card).join('')}</div></section>` : ''}`;
 
     // gallery
@@ -264,9 +269,10 @@
     // tabs
     document.querySelectorAll('.tabs__nav button').forEach(b => b.onclick = () => {
       document.querySelectorAll('.tabs__nav button').forEach(x => x.classList.toggle('active', x === b));
-      ['desc', 'spec', 'rv'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+      ['desc', 'spec'].forEach(t => $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
     });
     document.querySelectorAll('.rv__imgs img').forEach(im => im.onclick = () => lightbox(im.src));
+    const gr = $('#goReviews'); if (gr) gr.onclick = e => { e.preventDefault(); $('#danh-gia').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
     const rvf = $('#rvForm'); if (rvf) rvf.onsubmit = async e => { e.preventDefault(); const f = Object.fromEntries(new FormData(rvf).entries());
       try { await rpc('submit_review', { p_product_id: p.id, p_name: f.name, p_star: +f.star, p_comment: f.comment }); rvf.innerHTML = '<p style="color:var(--ok)">✅ Cảm ơn bạn! Đánh giá sẽ hiển thị sau khi được duyệt.</p>'; } catch (err) { toast('❌ ' + err.message); } };
     window.scrollTo(0, 0);
@@ -280,7 +286,7 @@
     const date = r.time ? new Date(r.time * 1000).toLocaleDateString('vi-VN') : '';
     return `<div class="rv"><div class="avatar" style="background:${color}">${esc(initial)}</div><div class="rv__body">
       <div class="rv__user">${esc(r.user)}</div><div class="rv__meta">${stars(r.star)} · ${date}${r.variant ? ' · Phân loại: ' + esc(r.variant) : ''}</div>
-      ${r.comment ? `<div class="rv__text">${esc(r.comment)}</div>` : ''}
+      ${r.comment ? `<div class="rv__text">${esc(r.comment)}</div>` : '<div class="rv__text rv__text--empty">Khách đã đánh giá nhưng không viết nhận xét.</div>'}
       ${r.images.length ? `<div class="rv__imgs">${r.images.map(s => `<img src="${s}" alt="Ảnh đánh giá" loading="lazy">`).join('')}</div>` : ''}
       ${r.reply ? `<div class="rv__reply"><b>Phản hồi của Shop:</b> ${esc(r.reply)}</div>` : ''}</div></div>`;
   }
