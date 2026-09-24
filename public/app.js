@@ -112,21 +112,53 @@
       ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="#/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}`;
   }
 
+  function sidebar(activeSlug, q, priceMin, priceMax) {
+    const total = state.db.products.length;
+    return `<aside class="side-cats">
+      <div class="side-cats__head">☰ TẤT CẢ DANH MỤC</div>
+      <ul class="side-cats__list">
+        <li><a href="#/tat-ca" class="${!activeSlug ? 'active' : ''}">Tất cả sản phẩm <b>${total}</b></a></li>
+        ${state.cats.map(c => `<li><a href="#/danh-muc/${c.slug}" class="${c.slug === activeSlug ? 'active' : ''}">${esc(c.name)} <b>${c.items.length}</b></a></li>`).join('')}
+      </ul>
+      <div class="side-cats__head">⚙ KHOẢNG GIÁ</div>
+      <form class="side-filter" id="priceForm">
+        <div class="side-filter__row"><input type="number" name="min" placeholder="₫ TỪ" value="${priceMin || ''}"><span>—</span><input type="number" name="max" placeholder="₫ ĐẾN" value="${priceMax || ''}"></div>
+        <button class="btn btn--block" style="padding:8px">Áp dụng</button>
+      </form>
+      <div class="side-cats__head">★ ĐÁNH GIÁ</div>
+      <ul class="side-stars">${[5, 4, 3].map(n => `<li><a href="#" data-star="${n}">${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n < 5 ? 'trở lên' : ''}</a></li>`).join('')}</ul>
+      <a class="side-reset" href="#/tat-ca">↺ Xoá tất cả bộ lọc</a>
+    </aside>`;
+  }
+
   function pageCategory(slug, q) {
     const c = slug ? catById(slug) : null;
+    const qs = new URLSearchParams(location.hash.split('?')[1] || '');
+    const pmin = +qs.get('min') || 0, pmax = +qs.get('max') || 0, minStar = +qs.get('star') || 0;
     let list = c ? productsOf(c) : state.db.products;
     const title = c ? c.name : (q ? `Kết quả cho “${q}”` : 'Tất cả sản phẩm');
     if (q) { const k = q.toLowerCase(); list = list.filter(p => p.name.toLowerCase().includes(k)); }
-    const sortKey = (location.hash.match(/sort=(\w+)/) || [])[1] || 'pop';
+    if (pmin) list = list.filter(p => p.price >= pmin);
+    if (pmax) list = list.filter(p => p.price <= pmax);
+    if (minStar) list = list.filter(p => (p.rating || 0) >= minStar);
+    const sortKey = qs.get('sort') || 'pop';
     const sorters = { pop: (a, b) => b.sold - a.sold, new: (a, b) => b.id.localeCompare(a.id), asc: (a, b) => a.price - b.price, desc: (a, b) => b.price - a.price, rating: (a, b) => b.rating - a.rating };
     list = [...list].sort(sorters[sortKey] || sorters.pop);
-    app.innerHTML = crumb(c ? [esc(c.name)] : ['Tìm kiếm']) + `
-      <div class="toolbar"><h1>${esc(title)} <span class="muted" style="font-size:14px;font-weight:400">(${list.length} sản phẩm)</span></h1>
-        <label class="muted" style="font-size:13.5px">Sắp xếp
-        <select id="sortSel"><option value="pop">Bán chạy</option><option value="new">Mới nhất</option><option value="asc">Giá tăng dần</option><option value="desc">Giá giảm dần</option><option value="rating">Đánh giá cao</option></select></label></div>
-      ${list.length ? `<div class="grid">${list.map(card).join('')}</div>` : `<div class="empty"><div class="big">🔎</div>Không tìm thấy sản phẩm phù hợp.</div>`}`;
-    $('#sortSel').value = sortKey;
-    $('#sortSel').onchange = e => { const base = location.hash.split('?')[0]; const qs = new URLSearchParams(location.hash.split('?')[1] || ''); qs.set('sort', e.target.value); location.hash = base + '?' + qs; };
+    const sortBtn = (k, label) => `<button class="sortbtn ${sortKey === k ? 'active' : ''}" data-sort="${k}">${label}</button>`;
+    app.innerHTML = crumb(c ? [esc(c.name)] : [q ? 'Tìm kiếm' : 'Tất cả sản phẩm']) + `
+      <div class="shop-layout">
+        ${sidebar(slug, q, pmin, pmax)}
+        <section>
+          <div class="toolbar"><h1>${esc(title)} <span class="muted" style="font-size:14px;font-weight:400">(${list.length} sản phẩm)</span></h1></div>
+          <div class="sortbar"><span class="muted">Sắp xếp theo</span>${sortBtn('pop', 'Phổ biến')}${sortBtn('new', 'Mới nhất')}${sortBtn('rating', 'Đánh giá')}${sortBtn('asc', 'Giá thấp → cao')}${sortBtn('desc', 'Giá cao → thấp')}</div>
+          ${list.length ? `<div class="grid">${list.map(card).join('')}</div>` : `<div class="empty"><div class="big">🔎</div>Không tìm thấy sản phẩm phù hợp.<br><a class="btn" style="margin-top:14px" href="#/tat-ca">Xoá bộ lọc</a></div>`}
+        </section>
+      </div>`;
+    const setQs = (k, v) => { const base = location.hash.split('?')[0]; const p = new URLSearchParams(location.hash.split('?')[1] || ''); v ? p.set(k, v) : p.delete(k); location.hash = base + (p.toString() ? '?' + p : ''); };
+    app.querySelectorAll('.sortbtn').forEach(b => b.onclick = () => setQs('sort', b.dataset.sort));
+    app.querySelectorAll('.side-stars a').forEach(a => a.onclick = e => { e.preventDefault(); setQs('star', a.dataset.star); });
+    $('#priceForm').onsubmit = e => { e.preventDefault(); const f = new FormData(e.target); const base = location.hash.split('?')[0]; const p = new URLSearchParams(location.hash.split('?')[1] || '');
+      f.get('min') ? p.set('min', f.get('min')) : p.delete('min'); f.get('max') ? p.set('max', f.get('max')) : p.delete('max'); location.hash = base + (p.toString() ? '?' + p : ''); };
     document.querySelectorAll('#catbar a').forEach(a => a.classList.toggle('active', a.dataset.cat === slug));
   }
 
@@ -338,6 +370,7 @@
     if (!seg.length) return pageHome();
     switch (seg[0]) {
       case 'danh-muc': return pageCategory(decodeURIComponent(seg[1] || ''), q.get('q') || '');
+      case 'tat-ca': return pageCategory('', '');
       case 'tim-kiem': return pageCategory('', q.get('q') || '');
       case 'san-pham': return pageProduct(decodeURIComponent(seg[1] || ''));
       case 'gio-hang': return pageCart();
