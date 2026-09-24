@@ -86,6 +86,7 @@
     .tbl-scroll{overflow-x:auto}
     table{min-width:660px}
   }
+.svc-tag{display:inline-block;margin-left:5px;font-size:13px;background:var(--brand-soft);border-radius:6px;padding:0 4px}
 </style>
 </head>
 <body>
@@ -191,7 +192,7 @@ function rowHtml(o){
   const items=o.order_items||o.items||[];
   return `<tr class="rowlink" data-code="${esc(o.code)}">
     <td><div class="thumbs">${items.slice(0,3).map(i=>`<img src="${img(i.image)}" alt="">`).join('')}</div></td>
-    <td><b>${esc(o.code)}</b><div class="sm">${items.length} sản phẩm</div></td>
+    <td><b>${esc(o.code)}</b>${(o.services||[]).map(x=>`<span class="svc-tag" title="${esc(x.name)}">${esc(x.icon||'•')}</span>`).join('')}<div class="sm">${items.length} sản phẩm${o.province?' · '+esc(o.province):''}</div></td>
     <td class="sm">${dt(o.created_at||o.createdAt)}</td>
     <td><b>${esc(o.name||o.customer?.name)}</b><div class="sm">${esc(o.phone||o.customer?.phone)}</div></td>
     <td><b>${fmt(o.total)}</b></td>
@@ -234,6 +235,7 @@ window.openOrder=code=>{
       <div class="dline"><span>Họ tên</span><b>${esc(cust.name)}</b></div>
       <div class="dline"><span>Điện thoại</span><b><a href="tel:${esc(cust.phone)}">${esc(cust.phone)}</a></b></div>
       <div class="dline"><span>Địa chỉ</span><span style="text-align:right">${esc(cust.address)}</span></div>
+      ${o.province?`<div class="dline"><span>Tỉnh/Thành phố</span><b>${esc(o.province)}</b></div>`:''}
       ${cust.note?`<div class="dline"><span>Ghi chú của khách</span><span style="text-align:right">${esc(cust.note)}</span></div>`:''}
       <div class="copyline">
         <button class="btn btn--ghost btn--sm" onclick="copyAddr('${esc(o.code)}')">📋 Sao chép địa chỉ giao hàng</button>
@@ -247,7 +249,8 @@ window.openOrder=code=>{
       <div class="dtotal">
         <div class="dline"><span>Tạm tính</span><span>${fmt(o.subtotal)}</span></div>
         ${o.discount?`<div class="dline" style="color:var(--ok)"><span>Giảm giá${o.voucher_code?' ('+esc(o.voucher_code)+')':''}</span><span>−${fmt(o.discount)}</span></div>`:''}
-        <div class="dline"><span>Phí vận chuyển</span><span>${o.shipping?fmt(o.shipping):'Miễn phí'}</span></div>
+        ${(o.services||[]).map(x=>`<div class="dline"><span>${esc(x.icon||'')} ${esc(x.name)}</span><span>${fmt(x.fee)}</span></div>`).join('')}
+        <div class="dline"><span>Phí vận chuyển${o.province?' ('+esc(o.province)+')':''}</span><span>${fmt(o.shipping)}</span></div>
         <div class="dline"><span>Tổng thu khi giao (COD)</span><span>${fmt(o.total)}</span></div>
       </div></div>
     ${SB?`<div class="dsec"><h3>Ghi chú nội bộ</h3><textarea id="admNote" rows="3" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit">${esc(o.admin_note||'')}</textarea>
@@ -286,10 +289,11 @@ window.printOrder=code=>{
     img.p{width:42px;height:42px;object-fit:cover;border-radius:6px}</style></head><body>
     <img class="logo" src="${location.origin}/img/logo.png"><h1>PHIẾU GIAO HÀNG – ${esc(o.code)}</h1>
     <div>${dt(o.created_at||o.createdAt)} · Thanh toán khi nhận hàng (COD)</div>
-    <div class="box"><b>Người nhận:</b> ${esc(c.name)} — ${esc(c.phone)}<br><b>Địa chỉ:</b> ${esc(c.address)}${c.note?`<br><b>Ghi chú:</b> ${esc(c.note)}`:''}</div>
+    <div class="box"><b>Người nhận:</b> ${esc(c.name)} — ${esc(c.phone)}<br><b>Địa chỉ:</b> ${esc(c.address)}${o.province?', '+esc(o.province):''}${c.note?`<br><b>Ghi chú:</b> ${esc(c.note)}`:''}</div>
+    ${(o.services||[]).length?`<div class="box" style="border:2px solid #C21A9E"><b>DỊCH VỤ THÊM:</b> ${(o.services||[]).map(x=>esc(x.icon||'')+' '+esc(x.name)).join(' · ')}</div>`:''}
     <table><tr><th></th><th>Sản phẩm</th><th>Phân loại</th><th>Đơn giá</th><th>SL</th><th>Thành tiền</th></tr>
     ${items.map(i=>`<tr><td><img class="p" src="${img(i.image)}"></td><td>${esc(i.name)}</td><td>${esc(i.variant||'-')}</td><td>${fmt(i.price)}</td><td>${i.qty}</td><td>${fmt(i.price*i.qty)}</td></tr>`).join('')}</table>
-    <div class="tot">Tạm tính: ${fmt(o.subtotal)} · Ship: ${o.shipping?fmt(o.shipping):'Miễn phí'}<br>TỔNG THU: ${fmt(o.total)}</div>
+    <div class="tot">Tạm tính: ${fmt(o.subtotal)}${o.discount?' · Giảm: −'+fmt(o.discount):''}${o.services_fee?' · Dịch vụ: '+fmt(o.services_fee):''} · Ship: ${fmt(o.shipping)}<br>TỔNG THU: ${fmt(o.total)}</div>
     <p style="margin-top:30px;font-size:13px">Cảm ơn quý khách đã mua hàng tại M&Q HOME TECH!</p>
     </body></html>`);
   w.document.close(); setTimeout(()=>w.print(),600);
@@ -505,19 +509,53 @@ V.reviews=async()=>{ if(!SB) return '<h1>Đánh giá</h1><p class="sub">Cần Su
 
 V.settings=async()=>{ if(!SB) return '<h1>Cài đặt</h1><p class="sub">Cần Supabase.</p>';
   const s=Object.fromEntries((await sb('settings')).map(x=>[x.key,x.value])); const shop=s.shop||{};
+  const zones=await sb('shipping_zones?order=sort_order');
+  const svcs=await sb('services?order=sort_order');
+  const hl=shop.hotlines||[];
   return `<h1>Cài đặt cửa hàng</h1><p class="sub">Áp dụng ngay cho website sau khi lưu</p>
+
+    <h2 style="font-size:16px;margin:18px 0 8px">🚚 Phí vận chuyển theo khu vực</h2>
+    <div class="panel tbl-scroll"><table><tr><th>Khu vực</th><th>Tỉnh/Thành phố</th><th>Phí (₫)</th><th>Áp dụng</th></tr>
+    ${zones.map(z=>`<tr>
+      <td><input value="${esc(z.name)}" style="min-width:180px" onchange="updZone(${z.id},{name:this.value})"></td>
+      <td class="sm" style="max-width:420px">${z.provinces.map(esc).join(', ')}</td>
+      <td><input type="number" value="${z.fee}" style="width:110px" onchange="updZone(${z.id},{fee:+this.value})"></td>
+      <td><input type="checkbox" ${z.is_active?'checked':''} onchange="updZone(${z.id},{is_active:this.checked})"></td></tr>`).join('')}
+    <tr><td colspan="2"><b>Phí mặc định</b><div class="sm">Dùng khi không xác định được khu vực</div></td>
+      <td><input id="sDefFee" type="number" value="${s.shipping_default_fee||35000}" style="width:110px"></td><td></td></tr></table></div>
+
+    <h2 style="font-size:16px;margin:22px 0 8px">🎁 Dịch vụ thêm</h2>
+    <div class="panel tbl-scroll"><table><tr><th>Icon</th><th>Tên dịch vụ</th><th>Mô tả</th><th>Phí (₫)</th><th>Hiện</th></tr>
+    ${svcs.map(x=>`<tr>
+      <td><input value="${esc(x.icon)}" style="width:56px;text-align:center" onchange="updSvc('${x.code}',{icon:this.value})"></td>
+      <td><input value="${esc(x.name)}" style="min-width:160px" onchange="updSvc('${x.code}',{name:this.value})"></td>
+      <td><input value="${esc(x.description)}" style="min-width:300px" onchange="updSvc('${x.code}',{description:this.value})"></td>
+      <td><input type="number" value="${x.fee}" style="width:110px" onchange="updSvc('${x.code}',{fee:+this.value})"></td>
+      <td><input type="checkbox" ${x.is_active?'checked':''} onchange="updSvc('${x.code}',{is_active:this.checked})"></td></tr>`).join('')}
+    </table></div>
+
+    <h2 style="font-size:16px;margin:22px 0 8px">📞 Thông tin cửa hàng</h2>
     <div class="panel" style="padding:22px;max-width:560px">
-      <div class="field"><label>Phí vận chuyển (₫)</label><input id="sFee" type="number" value="${s.shipping_fee}"></div>
-      <div class="field"><label>Miễn phí vận chuyển cho đơn từ (₫)</label><input id="sFree" type="number" value="${s.freeship_from}"></div>
+      <div class="field"><label>Số Zalo</label><input id="sZalo" value="${esc(shop.zalo||'')}"></div>
+      <div class="field"><label>Số hỗ trợ 1</label><input id="sHl1" value="${esc((hl[0]||{}).phone||'')}"></div>
+      <div class="field"><label>Tên người hỗ trợ 1 (không bắt buộc)</label><input id="sHl1n" value="${esc((hl[0]||{}).name||'')}"></div>
+      <div class="field"><label>Số hỗ trợ 2</label><input id="sHl2" value="${esc((hl[1]||{}).phone||'')}"></div>
+      <div class="field"><label>Tên người hỗ trợ 2 (không bắt buộc)</label><input id="sHl2n" value="${esc((hl[1]||{}).name||'')}"></div>
       <div class="field"><label>Tên cửa hàng</label><input id="sName" value="${esc(shop.name||'')}"></div>
       <div class="field"><label>Mô tả</label><textarea id="sDesc" rows="2">${esc(shop.description||'')}</textarea></div>
       <div class="field"><label>Địa chỉ</label><input id="sLoc" value="${esc(shop.location||'')}"></div>
       <div class="field"><label>Link gian hàng Shopee</label><input id="sShopee" value="${esc(shop.shopee||'')}"></div>
       <button class="btn" onclick="saveSettings()">Lưu cài đặt</button></div>`;
 };
+window.updZone=async(id,body)=>{try{await sb(`shipping_zones?id=eq.${id}`,{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu khu vực');}catch(e){toast('❌ '+e.message);}};
+window.updSvc=async(code,body)=>{try{await sb(`services?code=eq.${code}`,{method:'PATCH',body:JSON.stringify(body)});toast('Đã lưu dịch vụ');}catch(e){toast('❌ '+e.message);}};
 window.saveSettings=async()=>{ try{ const shop=(await sb('settings?key=eq.shop'))[0].value;
-  Object.assign(shop,{name:$('#sName').value,description:$('#sDesc').value,location:$('#sLoc').value,shopee:$('#sShopee').value});
-  await sb('settings',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{key:'shipping_fee',value:+$('#sFee').value},{key:'freeship_from',value:+$('#sFree').value},{key:'shop',value:shop}])});
+  const hot=[]; 
+  if($('#sHl1').value.trim()) hot.push({phone:$('#sHl1').value.trim(),name:$('#sHl1n').value.trim()});
+  if($('#sHl2').value.trim()) hot.push({phone:$('#sHl2').value.trim(),name:$('#sHl2n').value.trim()});
+  Object.assign(shop,{name:$('#sName').value,description:$('#sDesc').value,location:$('#sLoc').value,shopee:$('#sShopee').value,zalo:$('#sZalo').value.trim(),hotlines:hot});
+  delete shop.hotline;
+  await sb('settings',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{key:'shipping_default_fee',value:+$('#sDefFee').value},{key:'shop',value:shop}])});
   toast('Đã lưu cài đặt'); }catch(e){toast('❌ '+e.message);} };
 
 window.show=async(v,q)=>{

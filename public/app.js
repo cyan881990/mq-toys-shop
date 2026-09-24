@@ -2,7 +2,9 @@
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const app = $('#app');
-  const state = { db: null, cart: loadCart(), voucher: null };
+  const state = { db: null, cart: loadCart(), voucher: null,
+    province: localStorage.getItem('mq_province') || '',
+    services: JSON.parse(localStorage.getItem('mq_services') || '[]') };
   const fmt = n => (n || 0).toLocaleString('vi-VN') + '₫';
   // ----- Điều hướng URL sạch (không còn #/) -----
   const go = (url, replace) => {
@@ -10,7 +12,18 @@
     route(); window.scrollTo(0, 0);
   };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  let FREESHIP = 300000, SHIP = 25000;
+  let SHIP_DEFAULT = 35000, ZONES = [], SERVICES = [];
+  const provinces = () => ZONES.flatMap(z => z.provinces).sort((a, b) => a.localeCompare(b, 'vi'));
+  const zoneOf = prov => ZONES.find(z => z.provinces.indexOf(prov) >= 0) || null;
+  const shipFee = prov => { const z = zoneOf(prov); return z ? z.fee : SHIP_DEFAULT; };
+  const svcById = code => SERVICES.find(x => x.code === code) || null;
+  const chosenServices = () => state.services.map(svcById).filter(Boolean);
+  const servicesFee = () => chosenServices().reduce((a, x) => a + x.fee, 0);
+  const saveExtras = () => { localStorage.setItem('mq_province', state.province); localStorage.setItem('mq_services', JSON.stringify(state.services)); };
+  const toggleService = code => {
+    state.services = state.services.indexOf(code) >= 0 ? state.services.filter(c => c !== code) : state.services.concat(code);
+    saveExtras();
+  };
   const CFG = window.MQ_CONFIG || {};
   const SB = CFG.supabaseUrl ? { url: CFG.supabaseUrl.replace(/\/$/, ''), key: CFG.supabaseAnonKey } : null;
   async function rpc(fn, args) {
@@ -42,14 +55,15 @@
   }
   function totals(lines) {
     const subtotal = lines.reduce((a, l) => a + l.price * l.qty, 0);
-    const shipping = subtotal === 0 ? 0 : subtotal >= FREESHIP ? 0 : SHIP;
+    const shipping = subtotal === 0 ? 0 : shipFee(state.province);
+    const extra = servicesFee();
     const v = state.voucher;
     let discount = 0;
     if (v && subtotal >= (v.min_order || 0)) {
       discount = v.kind === 'percent' ? Math.floor(subtotal * v.value / 100) : Math.min(v.value, subtotal);
       if (v.kind === 'percent' && v.max_discount) discount = Math.min(discount, v.max_discount);
     }
-    return { subtotal, discount, shipping, total: subtotal - discount + shipping };
+    return { subtotal, discount, shipping, extra, total: subtotal - discount + shipping + extra };
   }
   const defaultVoucher = () => (state.db.vouchers || []).find(v => v.is_default) || null;
   const voucherLabel = v => v.kind === 'percent' ? `giảm ${v.value}%${v.max_discount ? ' tối đa ' + fmt(v.max_discount) : ''}` : `giảm ${fmt(v.value)}`;
@@ -67,7 +81,9 @@
   async function loadData() {
     if (SB) {
       state.db = await rpc('get_catalog');
-      if (state.db.shipping) { SHIP = +state.db.shipping.fee || SHIP; FREESHIP = +state.db.shipping.freeFrom || FREESHIP; }
+      if (state.db.shipping) { SHIP_DEFAULT = +state.db.shipping.defaultFee || SHIP_DEFAULT; ZONES = state.db.shipping.zones || []; }
+      SERVICES = state.db.services || [];
+      state.services = state.services.filter(svcById);
     } else {
       const r = await fetch('/api/products', { headers: { Accept: 'application/json' } }).catch(() => null);
       const ok = r && r.ok && (r.headers.get('content-type') || '').includes('json');
@@ -80,8 +96,20 @@
     $('#footerLoc').textContent = state.db.shop.location;
     $('#shopeeLink').href = state.db.shop.shopee;
     const sl2 = $('#shopeeLink2'); if (sl2) sl2.href = state.db.shop.shopee;
-    const zalo = state.db.shop.zalo; 
-    if (zalo) { const zb = $('#zaloBtn'); if (zb) { zb.href = 'https://zalo.me/' + zalo.replace(/\D/g, ''); } }
+    const zalo = state.db.shop.zalo;
+    if (zalo) { const zb = $('#zaloBtn'); if (zb) zb.href = 'https://zalo.me/' + zalo.replace(/\D/g, ''); }
+    const hl = state.db.shop.hotlines || [];
+    if (hl.length) {
+      const fone = p => p.replace(/(\d{4})(\d{3})(\d{3})/, '$1 $2 $3');
+      const cb = $('.contact-fab__btn--call');
+      if (cb) { cb.href = 'tel:' + hl[0].phone; cb.querySelector('.contact-fab__label').textContent = fone(hl[0].phone); }
+      document.querySelectorAll('.footer-phone').forEach(li => {
+        const h = hl[+li.dataset.i];
+        if (!h) { li.hidden = true; return; }
+        li.hidden = false;
+        li.innerHTML = `📞 <a href="tel:${esc(h.phone)}">Hỗ trợ: ${esc(fone(h.phone))}${h.name ? ' (' + esc(h.name) + ')' : ''}</a>`;
+      });
+    }
     $('#year').textContent = new Date().getFullYear();
     state.db.vouchers = state.db.vouchers || [];
     if (!state.voucher) state.voucher = defaultVoucher();
@@ -105,6 +133,12 @@
         <div class="card__meta"><span>${p.rating ? stars(p.rating) + ' ' + Number(p.rating).toFixed(1) : ''}</span><span>Đã bán ${p.sold}</span></div>
         <button class="card__add" data-add="${p.id}" ${soldOut(p) ? 'disabled' : ''}>${soldOut(p) ? 'Hết hàng' : (p.models.length ? 'Chọn phân loại' : '+ Thêm vào giỏ')}</button>
       </div></article>`;
+  }
+  function servicesAd() {
+    if (!SERVICES.length) return '';
+    return `<div class="svcad">${SERVICES.map(x => `<div class="svcad__item"><span class="svcad__ic">${esc(x.icon)}</span>
+      <div><b>${esc(x.name)} · ${fmt(x.fee)}</b><span>${esc(x.description)}</span></div></div>`).join('')}
+      <div class="svcad__note">Chọn thêm ở bước <b>giỏ hàng</b> hoặc <b>thanh toán</b></div></div>`;
   }
   function voucherBanner() {
     const vs = (state.db.vouchers || []).slice(0, 3);
@@ -136,6 +170,7 @@
         </div>
       </section>
       ${voucherBanner()}
+      ${servicesAd()}
       <section class="section"><div class="section__head"><h2>Danh mục sản phẩm</h2></div>
         <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
       ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
@@ -238,11 +273,12 @@
             <span class="stock-ok">Còn hàng</span>
           </div>
           ${voucherBanner()}
+          ${servicesAd()}
           <div class="pd__price"><span class="price" id="pdPrice">${priceRange}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}${p.discount ? `<span class="off">GIẢM ${p.discount}%</span>` : ''}</div>
           ${p.variants.map(v => `<div class="opt"><div class="opt__label">${esc(v.name)}</div><div class="chips" data-variant>${v.options.map((o, i) => `<button class="chip" data-opt="${esc(o)}">${v.images[i] ? `<img src="${v.images[i]}" alt="">` : ''}${esc(o)}</button>`).join('')}</div></div>`).join('')}
           <div class="opt"><div class="opt__label">Số lượng</div><div class="qty"><button id="qMinus">−</button><input id="qInput" value="1" inputmode="numeric"><button id="qPlus">+</button></div></div>
           <div class="pd__actions">${soldOut(p) ? '<div class="stock-out-box">Sản phẩm tạm hết hàng — vui lòng quay lại sau hoặc nhắn shop để đặt trước.</div>' : `<button class="btn btn--ghost btn--lg" id="btnAdd">🛒 Thêm vào giỏ</button><button class="btn btn--lg" id="btnBuy">Mua ngay – COD</button>`}</div>
-          <div class="pd__trust"><div>💵 Thanh toán khi nhận hàng</div><div>🔄 Đổi trả trong 7 ngày nếu lỗi</div><div>🚚 Freeship đơn từ 300.000₫</div><div>✅ Hàng chính hãng, nguyên seal</div></div>
+          <div class="pd__trust"><div>💵 Thanh toán khi nhận hàng</div><div>🔄 Đổi trả trong 7 ngày nếu lỗi</div><div>🚚 Giao toàn quốc, phí theo khu vực</div><div>✅ Hàng chính hãng, nguyên seal</div></div>
         </div>
       </div>
       <div class="tabs"><div class="tabs__nav"><button class="active" data-tab="desc">Mô tả sản phẩm</button><button data-tab="spec">Thông số</button></div>
@@ -347,18 +383,53 @@
       ${r.reply ? `<div class="rv__reply"><b>Phản hồi của Shop:</b> ${esc(r.reply)}</div>` : ''}</div></div>`;
   }
 
+
+  // ---------- Khu vực giao hàng & dịch vụ thêm ----------
+  function provinceSelect(id) {
+    return `<select id="${id}" class="prov-select">
+      <option value="">— Chọn Tỉnh/Thành phố —</option>
+      ${provinces().map(p => `<option value="${esc(p)}" ${p === state.province ? 'selected' : ''}>${esc(p)}</option>`).join('')}
+    </select>`;
+  }
+  function servicesBox() {
+    if (!SERVICES.length) return '';
+    return `<div class="svcbox"><div class="svcbox__head">Dịch vụ thêm</div>
+      ${SERVICES.map(x => `<label class="svc ${state.services.indexOf(x.code) >= 0 ? 'svc--on' : ''}" data-svc="${esc(x.code)}">
+        <input type="checkbox" ${state.services.indexOf(x.code) >= 0 ? 'checked' : ''}>
+        <span class="svc__ic">${esc(x.icon)}</span>
+        <span class="svc__body"><b>${esc(x.name)}</b><small>${esc(x.description)}</small></span>
+        <b class="svc__fee">+${fmt(x.fee)}</b></label>`).join('')}</div>`;
+  }
+  function bindServices(rerender) {
+    document.querySelectorAll('[data-svc]').forEach(el => {
+      el.querySelector('input').onchange = () => { toggleService(el.dataset.svc); rerender(); };
+    });
+  }
+  function shipRow(t) {
+    const z = zoneOf(state.province);
+    return `<div class="row"><span>Phí vận chuyển${z ? ` <i class="muted">(${esc(z.name)})</i>` : ''}</span><span>${state.province ? fmt(t.shipping) : '<i class="muted">chọn khu vực</i>'}</span></div>`;
+  }
+  function svcRows() {
+    return chosenServices().map(x => `<div class="row"><span>${esc(x.icon)} ${esc(x.name)}</span><span>${fmt(x.fee)}</span></div>`).join('');
+  }
+
   function pageCart() {
     const lines = cartLines(); const t = totals(lines);
     if (!lines.length) { app.innerHTML = crumb(['Giỏ hàng']) + `<div class="empty"><div class="big">🛒</div><p>Giỏ hàng của bạn đang trống.</p><a class="btn" href="/">Tiếp tục mua sắm</a></div>`; return; }
     app.innerHTML = crumb(['Giỏ hàng']) + `<div class="cart"><div class="cart__list">${lines.map(l => `<div class="cart__item" data-key="${esc(l.key)}">
         <img src="${l.image}" alt=""><div><a class="cart__name" href="/san-pham/${l.p.slug}">${esc(l.p.name)}</a>${l.model ? `<div class="cart__variant">Phân loại: ${esc(l.model)}</div>` : ''}<div class="price" style="font-size:14px">${fmt(l.price)}</div></div>
         <div class="cart__right"><div class="qty"><button data-q="-1">−</button><input value="${l.qty}" data-qin inputmode="numeric"><button data-q="1">+</button></div><b>${fmt(l.price * l.qty)}</b><button class="link-danger" data-rm>Xóa</button></div></div>`).join('')}</div>
-      <aside class="summary"><h3>Tóm tắt đơn hàng</h3><div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
+      <aside class="summary"><h3>Tóm tắt đơn hàng</h3>
+        ${servicesBox()}
+        <div class="field field--sm"><label>Giao đến Tỉnh/Thành phố</label>${provinceSelect('cartProv')}</div>
+        <div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
         ${t.discount ? `<div class="row row--disc"><span>Giảm giá (${esc(state.voucher.code)})</span><span>−${fmt(t.discount)}</span></div>` : ''}
-        <div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
-        ${t.shipping ? `<div class="note-free">Mua thêm ${fmt(FREESHIP - t.subtotal)} để được miễn phí vận chuyển</div>` : '<div class="note-free">🎉 Đơn hàng được miễn phí vận chuyển</div>'}
+        ${svcRows()}
+        ${shipRow(t)}
         <div class="row total"><span>Tổng cộng</span><span>${fmt(t.total)}</span></div>
         <a class="btn btn--lg btn--block" href="/thanh-toan" style="margin-top:12px">Đặt hàng – Thanh toán khi nhận</a><a class="btn btn--ghost btn--block" href="/" style="margin-top:8px">Tiếp tục mua sắm</a></aside></div>`;
+    bindServices(pageCart);
+    $('#cartProv').onchange = e => { state.province = e.target.value; saveExtras(); pageCart(); };
     app.querySelectorAll('.cart__item').forEach(el => {
       const key = el.dataset.key; const item = state.cart.find(i => i.key === key);
       el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { item.qty = Math.max(1, Math.min(99, item.qty + (+b.dataset.q))); saveCart(); pageCart(); });
@@ -375,7 +446,9 @@
       <form class="form" id="coForm" novalidate><h2>Thông tin giao hàng</h2>
         <div class="field"><label>Họ và tên *</label><input name="name" value="${esc(saved.name || '')}" placeholder="Nguyễn Văn A" required><div class="err">Vui lòng nhập họ tên</div></div>
         <div class="field"><label>Số điện thoại *</label><input name="phone" value="${esc(saved.phone || '')}" placeholder="09xx xxx xxx" inputmode="tel" required><div class="err">Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0)</div></div>
-        <div class="field"><label>Địa chỉ nhận hàng *</label><textarea name="address" rows="3" placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" required>${esc(saved.address || '')}</textarea><div class="err">Vui lòng nhập địa chỉ đầy đủ (số nhà, đường, phường/xã, quận/huyện, tỉnh/thành)</div></div>
+        <div class="field"><label>Tỉnh/Thành phố *</label>${provinceSelect('coProv')}<div class="err">Vui lòng chọn Tỉnh/Thành phố</div>
+          <small class="hint">${state.province ? `Khu vực <b>${esc((zoneOf(state.province) || {}).name || '')}</b> – phí vận chuyển <b>${fmt(shipFee(state.province))}</b>` : 'Phí vận chuyển được tính theo khu vực giao hàng.'}</small></div>
+        <div class="field"><label>Địa chỉ nhận hàng *</label><textarea name="address" rows="3" placeholder="Số nhà, đường, phường/xã, quận/huyện" required>${esc(saved.address || '')}</textarea><div class="err">Vui lòng nhập địa chỉ đầy đủ (số nhà, đường, phường/xã, quận/huyện)</div></div>
         <div class="field"><label>Ghi chú (không bắt buộc)</label><textarea name="note" rows="2" placeholder="Ví dụ: giao giờ hành chính, gọi trước khi giao…"></textarea></div>
         <h2>Mã giảm giá</h2>
         <div class="vbox">
@@ -383,6 +456,8 @@
           <div id="vMsg" class="vbox__msg">${state.voucher ? `✅ Đang áp dụng <b>${esc(state.voucher.code)}</b> – ${esc(state.voucher.title)}` : ''}</div>
           ${(state.db.vouchers || []).length ? `<div class="vbox__list">${state.db.vouchers.map(v => `<button type="button" class="vchip" data-pick="${esc(v.code)}">${esc(v.code)} · ${voucherLabel(v)}</button>`).join('')}</div>` : ''}
         </div>
+        <h2>Dịch vụ thêm</h2>
+        ${servicesBox()}
         <h2>Phương thức thanh toán</h2>
         <div class="pay"><span class="ic">💵</span><div><b>Thanh toán khi nhận hàng (COD)</b><small>Bạn kiểm tra hàng rồi mới thanh toán tiền mặt cho shipper.</small></div></div>
         <p class="muted" style="font-size:13px">Bằng việc đặt hàng, bạn đồng ý với <a href="/chinh-sach" style="color:var(--brand-dark)">chính sách giao hàng &amp; đổi trả</a>.</p>
@@ -391,7 +466,8 @@
       <aside class="summary"><h3>Đơn hàng (${lines.reduce((a, l) => a + l.qty, 0)} sản phẩm)</h3><div class="mini-list">${lines.map(l => `<div class="mini"><img src="${l.image}" alt=""><span>${esc(l.p.name)}${l.model ? ` <i class="muted">(${esc(l.model)})</i>` : ''}</span><b>×${l.qty}</b></div>`).join('')}</div>
         <div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
         ${t.discount ? `<div class="row row--disc"><span>Giảm giá (${esc(state.voucher.code)})</span><span>−${fmt(t.discount)}</span></div>` : ''}
-        <div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
+        ${svcRows()}
+        ${shipRow(t)}
         <div class="row total"><span>Tổng thanh toán</span><span>${fmt(t.total)}</span></div>
         ${t.discount ? `<div class="note-free">🎉 Bạn tiết kiệm được ${fmt(t.discount)} khi đặt trên website</div>` : ''}</aside></div>`;
     const applyVoucher = async code => {
@@ -412,6 +488,8 @@
         pageCheckout();
       } catch (err) { msg.innerHTML = `<span style="color:var(--danger)">❌ ${esc(err.message)}</span>`; }
     };
+    bindServices(pageCheckout);
+    $('#coProv').onchange = e => { state.province = e.target.value; saveExtras(); pageCheckout(); };
     $('#vApply').onclick = () => applyVoucher($('#vInput').value);
     $('#vInput').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); applyVoucher($('#vInput').value); } };
     app.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => applyVoucher(b.dataset.pick));
@@ -421,11 +499,14 @@
       const f = Object.fromEntries(new FormData(form).entries());
       const set = (n, ok) => form.querySelector(`[name=${n}]`).closest('.field').classList.toggle('invalid', !ok);
       const okName = f.name.trim().length >= 2, okPhone = /^(0|\+84)\d{9}$/.test(f.phone.replace(/\s/g, '')), okAddr = f.address.trim().length >= 8;
+      const okProv = !!state.province;
       set('name', okName); set('phone', okPhone); set('address', okAddr);
-      if (!(okName && okPhone && okAddr)) { form.querySelector('.invalid input,.invalid textarea')?.focus(); return; }
+      $('#coProv').closest('.field').classList.toggle('invalid', !okProv);
+      if (!(okName && okPhone && okAddr && okProv)) { form.querySelector('.invalid input,.invalid textarea,.invalid select')?.focus(); return; }
       const btn = $('#coSubmit'); btn.disabled = true; btn.textContent = 'Đang gửi đơn hàng…';
       localStorage.setItem('mq_customer', JSON.stringify({ name: f.name, phone: f.phone, address: f.address }));
-      const payload = { customer: f, voucher: state.voucher ? state.voucher.code : '', items: state.cart.map(i => ({ id: i.id, qty: i.qty, model: i.model })) };
+      const payload = { customer: { ...f, province: state.province }, voucher: state.voucher ? state.voucher.code : '',
+        services: state.services, items: state.cart.map(i => ({ id: i.id, qty: i.qty, model: i.model })) };
       try {
         let j;
         if (SB) { j = { order: await rpc('place_order', { payload }) }; }
@@ -437,7 +518,7 @@
           j = await r.json();
           if (!r.ok || j.error) throw new Error(j.error || 'Lỗi đặt hàng');
         }
-        state.cart = []; saveCart(); state.voucher = defaultVoucher();
+        state.cart = []; saveCart(); state.voucher = defaultVoucher(); state.services = []; saveExtras();
         sessionStorage.setItem('mq_last_order', JSON.stringify(j.order));
         go('/dat-hang-thanh-cong/' + j.order.code);
       } catch (err) {
@@ -456,10 +537,11 @@
   const STATUS = { new: 'Mới đặt', confirmed: 'Đã xác nhận', shipping: 'Đang giao', done: 'Hoàn thành', cancelled: 'Đã hủy' };
   function orderBox(o) {
     return `<div class="order-box"><div class="row"><span>Mã đơn</span><b>${esc(o.code)}</b></div><div class="row"><span>Trạng thái</span><span class="status ${o.status}">${STATUS[o.status] || o.status}</span></div>
-      <div class="row"><span>Người nhận</span><span>${esc(o.customer.name)} – ${esc(o.customer.phone)}</span></div><div class="row"><span>Địa chỉ</span><span style="text-align:right;max-width:60%">${esc(o.customer.address)}</span></div>
+      <div class="row"><span>Người nhận</span><span>${esc(o.customer.name)} – ${esc(o.customer.phone)}</span></div><div class="row"><span>Địa chỉ</span><span style="text-align:right;max-width:60%">${esc(o.customer.address)}${o.customer.province ? ', ' + esc(o.customer.province) : ''}</span></div>
       <hr style="border:0;border-top:1px dashed var(--line)">${o.items.map(i => `<div class="row"><span>${esc(i.name.slice(0, 55))}${i.name.length > 55 ? '…' : ''}${i.variant ? ` <i class="muted">(${esc(i.variant)})</i>` : ''} ×${i.qty}</span><span>${fmt(i.price * i.qty)}</span></div>`).join('')}
       ${o.discount ? `<div class="row" style="color:var(--ok)"><span>Giảm giá${o.voucher ? ' (' + esc(o.voucher) + ')' : ''}</span><span>−${fmt(o.discount)}</span></div>` : ''}
-      <div class="row"><span>Phí vận chuyển</span><span>${o.shipping ? fmt(o.shipping) : 'Miễn phí'}</span></div><div class="row" style="font-weight:700;font-size:16px"><span>Tổng thanh toán khi nhận</span><span style="color:var(--brand-dark)">${fmt(o.total)}</span></div></div>`;
+      ${(o.services || []).map(x => `<div class="row"><span>${esc(x.icon || '')} ${esc(x.name)}</span><span>${fmt(x.fee)}</span></div>`).join('')}
+      <div class="row"><span>Phí vận chuyển</span><span>${fmt(o.shipping)}</span></div><div class="row" style="font-weight:700;font-size:16px"><span>Tổng thanh toán khi nhận</span><span style="color:var(--brand-dark)">${fmt(o.total)}</span></div></div>`;
   }
   function pageSuccess(code) {
     const o = JSON.parse(sessionStorage.getItem('mq_last_order') || 'null');
@@ -489,10 +571,14 @@
   }
   function pagePolicy() {
     app.innerHTML = `<div class="policy"><h1>Chính sách giao hàng &amp; đổi trả</h1>
-      <h3>🚚 Giao hàng</h3><p>Giao hàng toàn quốc qua các đơn vị vận chuyển uy tín. Thời gian giao 1–3 ngày nội thành TP.HCM, 3–6 ngày các tỉnh. Phí vận chuyển 25.000₫, <b>miễn phí cho đơn từ 300.000₫</b>.</p>
+      <h3>🚚 Giao hàng &amp; phí vận chuyển</h3><p>Giao hàng toàn quốc qua các đơn vị vận chuyển uy tín. Thời gian giao 1–3 ngày nội thành TP.HCM, 3–6 ngày các tỉnh. <b>Phí vận chuyển tính theo khu vực giao hàng</b>, hiển thị ngay khi bạn chọn Tỉnh/Thành phố ở bước thanh toán:</p>
+      <table class="ship-tbl"><tr><th>Khu vực</th><th>Phí vận chuyển</th></tr>
+        ${ZONES.map(z => `<tr><td><b>${esc(z.name)}</b><div class="muted" style="font-size:12.5px">${z.provinces.map(esc).join(', ')}</div></td><td><b>${fmt(z.fee)}</b></td></tr>`).join('')}</table>
+      <h3>🎁 Dịch vụ thêm</h3><ul>${SERVICES.map(x => `<li><b>${esc(x.icon)} ${esc(x.name)} – ${fmt(x.fee)}</b>: ${esc(x.description)}</li>`).join('')}</ul>
+      <p class="muted">Bạn có thể chọn thêm các dịch vụ này ở bước giỏ hàng hoặc thanh toán.</p>
       <h3>💵 Thanh toán khi nhận hàng (COD)</h3><p>Bạn được kiểm tra ngoại quan sản phẩm trước khi thanh toán tiền mặt cho nhân viên giao hàng. Shop sẽ gọi điện xác nhận đơn trước khi giao.</p>
       <h3>🔄 Đổi trả</h3><p>Đổi trả trong vòng 7 ngày kể từ khi nhận hàng nếu sản phẩm lỗi do nhà sản xuất, giao sai mẫu hoặc thiếu chi tiết. Sản phẩm còn nguyên tem, hộp, chưa qua sử dụng. Shop chịu phí vận chuyển đổi trả trong các trường hợp này.</p>
-      <h3>📞 Liên hệ</h3><p>Nhắn tin qua gian hàng Shopee <a href="${state.db.shop.shopee}" target="_blank" rel="noopener" style="color:var(--brand-dark)">mqhometech</a> để được hỗ trợ nhanh nhất.</p></div>`;
+      <h3>📞 Liên hệ</h3><p>Zalo <a href="https://zalo.me/0332572909" target="_blank" rel="noopener" style="color:var(--brand-dark)"><b>0332 572 909</b></a> · Hỗ trợ: <a href="tel:0937949469" style="color:var(--brand-dark)">0937 949 469</a> hoặc <a href="tel:0941482311" style="color:var(--brand-dark)">0941 482 311 (Thuý An)</a>. Bạn cũng có thể nhắn tin qua gian hàng Shopee <a href="${state.db.shop.shopee}" target="_blank" rel="noopener" style="color:var(--brand-dark)">mqhometech</a>.</p></div>`;
   }
   function notFound() { app.innerHTML = `<div class="empty"><div class="big">🙈</div><p>Không tìm thấy trang.</p><a class="btn" href="/">Về trang chủ</a></div>`; }
 

@@ -351,3 +351,33 @@ input,select,textarea{font:inherit}
 .rv__text--empty{color:var(--muted);font-style:italic}
 .rv-empty{text-align:center;padding:26px 16px;color:var(--muted)}
 .rv-empty p{margin:8px 0 0;font-size:15px;color:var(--ink)}
+
+/* ===== Dịch vụ thêm & khu vực giao hàng ===== */
+.svcad{display:grid;gap:10px;background:linear-gradient(135deg,#FDEBF6,#F6ECDC);border:1px solid var(--gold-light);border-radius:14px;padding:14px 16px;margin:14px 0}
+.svcad__item{display:flex;gap:11px;align-items:flex-start}
+.svcad__ic{font-size:22px;line-height:1.2;flex:none}
+.svcad__item b{display:block;font-size:14px;color:var(--brand-dark)}
+.svcad__item span{font-size:12.5px;color:var(--muted);line-height:1.45}
+.svcad__note{font-size:12px;color:var(--muted);border-top:1px dashed var(--gold-light);padding-top:8px}
+.svcbox{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:14px;background:#fff}
+.svcbox__head{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin:2px 4px 8px}
+.svc{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1.5px solid var(--line);border-radius:10px;cursor:pointer;margin-bottom:8px;transition:.15s}
+.svc:last-child{margin-bottom:0}
+.svc:hover{border-color:var(--gold-light)}
+.svc--on{border-color:var(--pink);background:var(--brand-soft)}
+.svc input{margin-top:3px;flex:none;accent-color:var(--pink);width:16px;height:16px}
+.svc__ic{font-size:19px;flex:none;line-height:1.3}
+.svc__body{flex:1;min-width:0}
+.svc__body b{display:block;font-size:13.5px}
+.svc__body small{display:block;color:var(--muted);font-size:12px;line-height:1.45;margin-top:2px}
+.svc__fee{flex:none;font-size:13.5px;color:var(--brand-dark);white-space:nowrap}
+.prov-select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;font:inherit;font-size:14px;background:#fff;color:inherit}
+.prov-select:focus{outline:0;border-color:var(--pink)}
+.field--sm{margin-bottom:12px}
+.field--sm label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px}
+.field .hint{display:block;font-size:12.5px;color:var(--muted);margin-top:5px;line-height:1.5}
+.field.invalid .prov-select{border-color:var(--danger)}
+.ship-tbl{width:100%;border-collapse:collapse;margin:10px 0 4px;font-size:14px}
+.ship-tbl th,.ship-tbl td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+.ship-tbl th{background:var(--brand-soft);font-size:12.5px;text-transform:uppercase;letter-spacing:.3px}
+.ship-tbl td:last-child,.ship-tbl th:last-child{white-space:nowrap;width:1%;text-align:right;color:var(--brand-dark)}
