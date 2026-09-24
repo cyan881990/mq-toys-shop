@@ -6,7 +6,9 @@
   [headers.values]
     Access-Control-Allow-Origin = "*"
 
+# SPA: mọi đường dẫn không phải file đều trả về index.html (URL sạch, không cần #)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+  force = false
