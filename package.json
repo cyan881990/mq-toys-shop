@@ -1,0 +1,12 @@
+{
+  "name": "mq-toys-shop",
+  "version": "1.0.0",
+  "description": "Website cửa hàng đồ chơi M&Q HOME TECH - giỏ hàng + thanh toán COD",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "download-images": "node scripts/download-images.js"
+  },
+  "license": "MIT"
+}
