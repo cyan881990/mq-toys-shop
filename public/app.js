@@ -4,6 +4,11 @@
   const app = $('#app');
   const state = { db: null, cart: loadCart(), voucher: null };
   const fmt = n => (n || 0).toLocaleString('vi-VN') + '₫';
+  // ----- Điều hướng URL sạch (không còn #/) -----
+  const go = (url, replace) => {
+    if (replace) history.replaceState({}, '', url); else history.pushState({}, '', url);
+    route(); window.scrollTo(0, 0);
+  };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let FREESHIP = 300000, SHIP = 25000;
   const CFG = window.MQ_CONFIG || {};
@@ -70,7 +75,7 @@
     }
     // Danh mục hiển thị: bỏ danh mục trống
     state.cats = state.db.categories.filter(c => c.items.length);
-    $('#catbar').innerHTML = `<a href="#/">Trang chủ</a>` + state.cats.map(c => `<a href="#/danh-muc/${c.slug}" data-cat="${c.slug}">${esc(c.name)}</a>`).join('');
+    $('#catbar').innerHTML = `<a href="/">Trang chủ</a>` + state.cats.map(c => `<a href="/danh-muc/${c.slug}" data-cat="${c.slug}">${esc(c.name)}</a>`).join('');
     $('#footerDesc').textContent = state.db.shop.description;
     $('#footerLoc').textContent = state.db.shop.location;
     $('#shopeeLink').href = state.db.shop.shopee;
@@ -91,9 +96,9 @@
     return `<article class="card${soldOut(p) ? ' card--out' : ''}">
       ${soldOut(p) ? '<span class="soldout">HẾT HÀNG</span>' : ''}
       ${p.discount ? `<span class="discount">-${p.discount}%</span>` : ''}
-      <a href="#/san-pham/${p.slug}"><img class="card__img" src="${p.images[0]}" alt="${esc(p.name)}" loading="lazy"></a>
+      <a href="/san-pham/${p.slug}"><img class="card__img" src="${p.images[0]}" alt="${esc(p.name)}" loading="lazy"></a>
       <div class="card__body">
-        <a class="card__name" href="#/san-pham/${p.slug}">${esc(p.name)}</a>
+        <a class="card__name" href="/san-pham/${p.slug}">${esc(p.name)}</a>
         <div class="card__price"><span class="price">${fmt(p.price)}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}</div>
         <div class="card__meta"><span>${p.rating ? stars(p.rating) + ' ' + Number(p.rating).toFixed(1) : ''}</span><span>Đã bán ${p.sold}</span></div>
         <button class="card__add" data-add="${p.id}" ${soldOut(p) ? 'disabled' : ''}>${soldOut(p) ? 'Hết hàng' : (p.models.length ? 'Chọn phân loại' : '+ Thêm vào giỏ')}</button>
@@ -106,7 +111,7 @@
       <div><b>${esc(v.title)}</b><div class="vbanner__sub">Mã <code>${esc(v.code)}</code>${v.min_order ? ' · đơn từ ' + fmt(v.min_order) : ''}${v.is_default ? ' · tự động áp dụng khi thanh toán' : ''}</div></div>
       <button class="vbanner__copy" data-vcode="${esc(v.code)}">Sao chép</button></div>`).join('')}</div>`;
   }
-  const crumb = parts => `<nav class="crumb">${['<a href="#/">Trang chủ</a>', ...parts].join(' › ')}</nav>`;
+  const crumb = parts => `<nav class="crumb">${['<a href="/">Trang chủ</a>', ...parts].join(' › ')}</nav>`;
 
   // ---------- Trang ----------
   function pageHome() {
@@ -120,7 +125,7 @@
         <div class="hero__main">
           <h1>Đồ chơi lắp ráp, mô hình &amp; thẻ bài<br>cho bé thỏa sức sáng tạo 🎉</h1>
           <p>${esc(db.shop.name)} – hơn ${all.length} sản phẩm chọn lọc từ gian hàng Shopee 4.9★. Giao hàng toàn quốc, <b>thanh toán khi nhận hàng (COD)</b>, kiểm tra hàng trước khi thanh toán.</p>
-          <div><a class="btn btn--lg" href="#/danh-muc/${state.cats[0]?.slug || ''}">Mua sắm ngay</a></div>
+          <div><a class="btn btn--lg" href="/danh-muc/${state.cats[0]?.slug || ''}">Mua sắm ngay</a></div>
         </div>
         <div class="hero__side">
           <div class="hero__stat"><span class="ic">⭐</span><div><b>${db.shop.rating}/5</b><span>Đánh giá trên Shopee</span></div></div>
@@ -130,10 +135,10 @@
       </section>
       ${voucherBanner()}
       <section class="section"><div class="section__head"><h2>Danh mục sản phẩm</h2></div>
-        <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="#/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
-      ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="#/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
+        <div class="cat-grid">${state.cats.map(c => `<a class="cat-card" href="/danh-muc/${c.slug}"><img class="cat-card__img" src="${catImg(c)}" alt="" loading="lazy"><div class="cat-card__name">${esc(c.name)}</div><div class="cat-card__count">${c.items.length} sản phẩm</div></a>`).join('')}</div></section>
+      ${sale.length ? `<section class="section"><div class="section__head"><h2>🔥 Thanh lý siêu giảm giá</h2><a href="/danh-muc/${catById('271083241').slug}">Xem tất cả ›</a></div><div class="grid">${sale.map(card).join('')}</div></section>` : ''}
       <section class="section"><div class="section__head"><h2>🏆 Bán chạy nhất</h2></div><div class="grid">${best.map(card).join('')}</div></section>
-      ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="#/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}
+      ${newest.length ? `<section class="section"><div class="section__head"><h2>✨ Hàng mới nhập</h2><a href="/danh-muc/${catById('271399347').slug}">Xem tất cả ›</a></div><div class="grid">${newest.map(card).join('')}</div></section>` : ''}
       </section></div>`;
     bindSidebar();
   }
@@ -143,8 +148,8 @@
     return `<aside class="side-cats">
       <div class="side-cats__head">☰ TẤT CẢ DANH MỤC</div>
       <ul class="side-cats__list">
-        <li><a href="#/tat-ca" class="${!activeSlug ? 'active' : ''}">Tất cả sản phẩm <b>${total}</b></a></li>
-        ${state.cats.map(c => `<li><a href="#/danh-muc/${c.slug}" class="${c.slug === activeSlug ? 'active' : ''}">${esc(c.name)} <b>${c.items.length}</b></a></li>`).join('')}
+        <li><a href="/tat-ca" class="${!activeSlug ? 'active' : ''}">Tất cả sản phẩm <b>${total}</b></a></li>
+        ${state.cats.map(c => `<li><a href="/danh-muc/${c.slug}" class="${c.slug === activeSlug ? 'active' : ''}">${esc(c.name)} <b>${c.items.length}</b></a></li>`).join('')}
       </ul>
       <div class="side-cats__head">⚙ KHOẢNG GIÁ</div>
       <form class="side-filter" id="priceForm">
@@ -153,27 +158,27 @@
       </form>
       <div class="side-cats__head">★ ĐÁNH GIÁ</div>
       <ul class="side-stars">${[5, 4, 3].map(n => `<li><a href="#" data-star="${n}">${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n < 5 ? 'trở lên' : ''}</a></li>`).join('')}</ul>
-      <a class="side-reset" href="#/tat-ca">↺ Xoá tất cả bộ lọc</a>
+      <a class="side-reset" href="/tat-ca">↺ Xoá tất cả bộ lọc</a>
     </aside>`;
   }
 
   function bindSidebar() {
-    const base = () => location.hash.split('?')[0].startsWith('#/danh-muc') || location.hash.split('?')[0].startsWith('#/tim-kiem') || location.hash.split('?')[0].startsWith('#/tat-ca') ? location.hash.split('?')[0] : '#/tat-ca';
+    const base = () => /^\/(danh-muc|tim-kiem|tat-ca)/.test(location.pathname) ? location.pathname : '/tat-ca';
     app.querySelectorAll('.side-stars a').forEach(a => a.onclick = e => {
-      e.preventDefault(); const p = new URLSearchParams(location.hash.split('?')[1] || ''); p.set('star', a.dataset.star); location.hash = base() + '?' + p;
+      e.preventDefault(); const p = new URLSearchParams(location.search); p.set('star', a.dataset.star); go(base() + '?' + p);
     });
     const pf = $('#priceForm');
     if (pf) pf.onsubmit = e => {
-      e.preventDefault(); const f = new FormData(e.target); const p = new URLSearchParams(location.hash.split('?')[1] || '');
+      e.preventDefault(); const f = new FormData(e.target); const p = new URLSearchParams(location.search);
       f.get('min') ? p.set('min', f.get('min')) : p.delete('min');
       f.get('max') ? p.set('max', f.get('max')) : p.delete('max');
-      location.hash = base() + (p.toString() ? '?' + p : '');
+      go(base() + (p.toString() ? '?' + p : ''));
     };
   }
 
   function pageCategory(slug, q) {
     const c = slug ? catById(slug) : null;
-    const qs = new URLSearchParams(location.hash.split('?')[1] || '');
+    const qs = new URLSearchParams(location.search);
     const pmin = +qs.get('min') || 0, pmax = +qs.get('max') || 0, minStar = +qs.get('star') || 0;
     let list = c ? productsOf(c) : state.db.products;
     const title = c ? c.name : (q ? `Kết quả cho “${q}”` : 'Tất cả sản phẩm');
@@ -191,10 +196,10 @@
         <section>
           <div class="toolbar"><h1>${esc(title)} <span class="muted" style="font-size:14px;font-weight:400">(${list.length} sản phẩm)</span></h1></div>
           <div class="sortbar"><span class="muted">Sắp xếp theo</span>${sortBtn('pop', 'Phổ biến')}${sortBtn('new', 'Mới nhất')}${sortBtn('rating', 'Đánh giá')}${sortBtn('asc', 'Giá thấp → cao')}${sortBtn('desc', 'Giá cao → thấp')}</div>
-          ${list.length ? `<div class="grid">${list.map(card).join('')}</div>` : `<div class="empty"><div class="big">🔎</div>Không tìm thấy sản phẩm phù hợp.<br><a class="btn" style="margin-top:14px" href="#/tat-ca">Xoá bộ lọc</a></div>`}
+          ${list.length ? `<div class="grid">${list.map(card).join('')}</div>` : `<div class="empty"><div class="big">🔎</div>Không tìm thấy sản phẩm phù hợp.<br><a class="btn" style="margin-top:14px" href="/tat-ca">Xoá bộ lọc</a></div>`}
         </section>
       </div>`;
-    const setQs = (k, v) => { const base = location.hash.split('?')[0]; const p = new URLSearchParams(location.hash.split('?')[1] || ''); v ? p.set(k, v) : p.delete(k); location.hash = base + (p.toString() ? '?' + p : ''); };
+    const setQs = (k, v) => { const p = new URLSearchParams(location.search); v ? p.set(k, v) : p.delete(k); go(location.pathname + (p.toString() ? '?' + p : '')); };
     app.querySelectorAll('.sortbtn').forEach(b => b.onclick = () => setQs('sort', b.dataset.sort));
     bindSidebar();
     document.querySelectorAll('#catbar a').forEach(a => a.classList.toggle('active', a.dataset.cat === slug));
@@ -207,7 +212,7 @@
     let selected = (p.variants.length === 1 && p.variants[0].options.length === 1) ? p.variants[0].options[0] : ''; let qty = 1; let imgIdx = 0;
     const priceRange = p.priceMax ? `${fmt(p.price)} – ${fmt(p.priceMax)}` : fmt(p.price);
     const dist = p.ratingDist || [0, 0, 0, 0, 0]; const total = dist.reduce((a, b) => a + b, 0) || p.reviews.length;
-    app.innerHTML = crumb([cat ? `<a href="#/danh-muc/${cat.slug}">${esc(cat.name)}</a>` : '', esc(p.name.slice(0, 60)) + '…'].filter(Boolean)) + `
+    app.innerHTML = crumb([cat ? `<a href="/danh-muc/${cat.slug}">${esc(cat.name)}</a>` : '', esc(p.name.slice(0, 60)) + '…'].filter(Boolean)) + `
       <div class="pd">
         <div class="gallery">
           <div class="gallery__main" id="galMain"><img src="${p.images[0]}" alt="${esc(p.name)}"></div>
@@ -265,7 +270,7 @@
     $('#qMinus').onclick = () => setQ(qty - 1); $('#qPlus').onclick = () => setQ(qty + 1); qIn.onchange = () => setQ(parseInt(qIn.value, 10));
     const ensureVariant = () => { if (p.variants.length && !selected) { toast('Vui lòng chọn phân loại sản phẩm'); $('[data-variant]').scrollIntoView({ block: 'center' }); return false; } return true; };
     if ($('#btnAdd')) $('#btnAdd').onclick = () => ensureVariant() && addToCart(p.id, qty, selected);
-    if ($('#btnBuy')) $('#btnBuy').onclick = () => { if (!ensureVariant()) return; addToCart(p.id, qty, selected); location.hash = '#/thanh-toan'; };
+    if ($('#btnBuy')) $('#btnBuy').onclick = () => { if (!ensureVariant()) return; addToCart(p.id, qty, selected); go('/thanh-toan'); };
     // tabs
     document.querySelectorAll('.tabs__nav button').forEach(b => b.onclick = () => {
       document.querySelectorAll('.tabs__nav button').forEach(x => x.classList.toggle('active', x === b));
@@ -293,16 +298,16 @@
 
   function pageCart() {
     const lines = cartLines(); const t = totals(lines);
-    if (!lines.length) { app.innerHTML = crumb(['Giỏ hàng']) + `<div class="empty"><div class="big">🛒</div><p>Giỏ hàng của bạn đang trống.</p><a class="btn" href="#/">Tiếp tục mua sắm</a></div>`; return; }
+    if (!lines.length) { app.innerHTML = crumb(['Giỏ hàng']) + `<div class="empty"><div class="big">🛒</div><p>Giỏ hàng của bạn đang trống.</p><a class="btn" href="/">Tiếp tục mua sắm</a></div>`; return; }
     app.innerHTML = crumb(['Giỏ hàng']) + `<div class="cart"><div class="cart__list">${lines.map(l => `<div class="cart__item" data-key="${esc(l.key)}">
-        <img src="${l.image}" alt=""><div><a class="cart__name" href="#/san-pham/${l.p.slug}">${esc(l.p.name)}</a>${l.model ? `<div class="cart__variant">Phân loại: ${esc(l.model)}</div>` : ''}<div class="price" style="font-size:14px">${fmt(l.price)}</div></div>
+        <img src="${l.image}" alt=""><div><a class="cart__name" href="/san-pham/${l.p.slug}">${esc(l.p.name)}</a>${l.model ? `<div class="cart__variant">Phân loại: ${esc(l.model)}</div>` : ''}<div class="price" style="font-size:14px">${fmt(l.price)}</div></div>
         <div class="cart__right"><div class="qty"><button data-q="-1">−</button><input value="${l.qty}" data-qin inputmode="numeric"><button data-q="1">+</button></div><b>${fmt(l.price * l.qty)}</b><button class="link-danger" data-rm>Xóa</button></div></div>`).join('')}</div>
       <aside class="summary"><h3>Tóm tắt đơn hàng</h3><div class="row"><span>Tạm tính</span><span>${fmt(t.subtotal)}</span></div>
         ${t.discount ? `<div class="row row--disc"><span>Giảm giá (${esc(state.voucher.code)})</span><span>−${fmt(t.discount)}</span></div>` : ''}
         <div class="row"><span>Phí vận chuyển</span><span>${t.shipping ? fmt(t.shipping) : 'Miễn phí'}</span></div>
         ${t.shipping ? `<div class="note-free">Mua thêm ${fmt(FREESHIP - t.subtotal)} để được miễn phí vận chuyển</div>` : '<div class="note-free">🎉 Đơn hàng được miễn phí vận chuyển</div>'}
         <div class="row total"><span>Tổng cộng</span><span>${fmt(t.total)}</span></div>
-        <a class="btn btn--lg btn--block" href="#/thanh-toan" style="margin-top:12px">Đặt hàng – Thanh toán khi nhận</a><a class="btn btn--ghost btn--block" href="#/" style="margin-top:8px">Tiếp tục mua sắm</a></aside></div>`;
+        <a class="btn btn--lg btn--block" href="/thanh-toan" style="margin-top:12px">Đặt hàng – Thanh toán khi nhận</a><a class="btn btn--ghost btn--block" href="/" style="margin-top:8px">Tiếp tục mua sắm</a></aside></div>`;
     app.querySelectorAll('.cart__item').forEach(el => {
       const key = el.dataset.key; const item = state.cart.find(i => i.key === key);
       el.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { item.qty = Math.max(1, Math.min(99, item.qty + (+b.dataset.q))); saveCart(); pageCart(); });
@@ -313,9 +318,9 @@
 
   function pageCheckout() {
     const lines = cartLines(); const t = totals(lines);
-    if (!lines.length) return (location.hash = '#/gio-hang');
+    if (!lines.length) return go('/gio-hang', true);
     const saved = JSON.parse(localStorage.getItem('mq_customer') || '{}');
-    app.innerHTML = crumb(['<a href="#/gio-hang">Giỏ hàng</a>', 'Thanh toán']) + `<div class="checkout">
+    app.innerHTML = crumb(['<a href="/gio-hang">Giỏ hàng</a>', 'Thanh toán']) + `<div class="checkout">
       <form class="form" id="coForm" novalidate><h2>Thông tin giao hàng</h2>
         <div class="field"><label>Họ và tên *</label><input name="name" value="${esc(saved.name || '')}" placeholder="Nguyễn Văn A" required><div class="err">Vui lòng nhập họ tên</div></div>
         <div class="field"><label>Số điện thoại *</label><input name="phone" value="${esc(saved.phone || '')}" placeholder="09xx xxx xxx" inputmode="tel" required><div class="err">Số điện thoại không hợp lệ (10 số, bắt đầu bằng 0)</div></div>
@@ -329,7 +334,7 @@
         </div>
         <h2>Phương thức thanh toán</h2>
         <div class="pay"><span class="ic">💵</span><div><b>Thanh toán khi nhận hàng (COD)</b><small>Bạn kiểm tra hàng rồi mới thanh toán tiền mặt cho shipper.</small></div></div>
-        <p class="muted" style="font-size:13px">Bằng việc đặt hàng, bạn đồng ý với <a href="#/chinh-sach" style="color:var(--brand-dark)">chính sách giao hàng &amp; đổi trả</a>.</p>
+        <p class="muted" style="font-size:13px">Bằng việc đặt hàng, bạn đồng ý với <a href="/chinh-sach" style="color:var(--brand-dark)">chính sách giao hàng &amp; đổi trả</a>.</p>
         <button class="btn btn--lg btn--block" type="submit" id="coSubmit">Xác nhận đặt hàng – ${fmt(t.total)}</button>
       </form>
       <aside class="summary"><h3>Đơn hàng (${lines.reduce((a, l) => a + l.qty, 0)} sản phẩm)</h3><div class="mini-list">${lines.map(l => `<div class="mini"><img src="${l.image}" alt=""><span>${esc(l.p.name)}${l.model ? ` <i class="muted">(${esc(l.model)})</i>` : ''}</span><b>×${l.qty}</b></div>`).join('')}</div>
@@ -383,13 +388,13 @@
         }
         state.cart = []; saveCart(); state.voucher = defaultVoucher();
         sessionStorage.setItem('mq_last_order', JSON.stringify(j.order));
-        location.hash = '#/dat-hang-thanh-cong/' + j.order.code;
+        go('/dat-hang-thanh-cong/' + j.order.code);
       } catch (err) {
         // Không có máy chủ (chạy tĩnh): vẫn tạo đơn tạm để khách thấy xác nhận
         if (!SB && (err instanceof TypeError || /JSON/.test(err.message))) {
           const order = { code: 'MQ' + Date.now().toString(36).toUpperCase().slice(-6), createdAt: new Date().toISOString(), status: 'new', payment: 'COD', customer: f, items: lines.map(l => ({ name: l.p.name, variant: l.model, price: l.price, qty: l.qty, image: l.image })), ...t, offline: true };
           const list = JSON.parse(localStorage.getItem('mq_orders_offline') || '[]'); list.push(order); localStorage.setItem('mq_orders_offline', JSON.stringify(list));
-          state.cart = []; saveCart(); sessionStorage.setItem('mq_last_order', JSON.stringify(order)); location.hash = '#/dat-hang-thanh-cong/' + order.code; return;
+          state.cart = []; saveCart(); sessionStorage.setItem('mq_last_order', JSON.stringify(order)); go('/dat-hang-thanh-cong/' + order.code); return;
         }
         toast('❌ ' + err.message); btn.disabled = false; btn.textContent = `Xác nhận đặt hàng – ${fmt(t.total)}`;
       }
@@ -409,7 +414,7 @@
     const o = JSON.parse(sessionStorage.getItem('mq_last_order') || 'null');
     app.innerHTML = `<div class="success"><div class="big">🎉</div><h1>Đặt hàng thành công!</h1><p>Cảm ơn bạn đã mua sắm tại M&amp;Q Toys. Shop sẽ gọi xác nhận trong thời gian sớm nhất. Bạn thanh toán khi nhận hàng.</p><div class="code">${esc(code)}</div>
       ${o && o.code === code ? orderBox(o) : ''}${o && o.offline ? '<p class="muted" style="font-size:13px">⚠️ Website đang chạy ở chế độ tĩnh (không có máy chủ), đơn hàng được lưu tạm trên trình duyệt này.</p>' : ''}
-      <a class="btn btn--lg" href="#/">Tiếp tục mua sắm</a></div>`;
+      <a class="btn btn--lg" href="/">Tiếp tục mua sắm</a></div>`;
     window.scrollTo(0, 0);
   }
   function pageTrack() {
@@ -438,13 +443,13 @@
       <h3>🔄 Đổi trả</h3><p>Đổi trả trong vòng 7 ngày kể từ khi nhận hàng nếu sản phẩm lỗi do nhà sản xuất, giao sai mẫu hoặc thiếu chi tiết. Sản phẩm còn nguyên tem, hộp, chưa qua sử dụng. Shop chịu phí vận chuyển đổi trả trong các trường hợp này.</p>
       <h3>📞 Liên hệ</h3><p>Nhắn tin qua gian hàng Shopee <a href="${state.db.shop.shopee}" target="_blank" rel="noopener" style="color:var(--brand-dark)">mqhometech</a> để được hỗ trợ nhanh nhất.</p></div>`;
   }
-  function notFound() { app.innerHTML = `<div class="empty"><div class="big">🙈</div><p>Không tìm thấy trang.</p><a class="btn" href="#/">Về trang chủ</a></div>`; }
+  function notFound() { app.innerHTML = `<div class="empty"><div class="big">🙈</div><p>Không tìm thấy trang.</p><a class="btn" href="/">Về trang chủ</a></div>`; }
 
   // ---------- Router ----------
   function route() {
     if (!state.db) return;
-    const [path, qs] = location.hash.replace(/^#/, '').split('?');
-    const q = new URLSearchParams(qs || '');
+    const path = location.pathname;
+    const q = new URLSearchParams(location.search);
     const seg = path.split('/').filter(Boolean);
     document.querySelectorAll('#catbar a').forEach(a => a.classList.remove('active'));
     if (!seg.length) return pageHome();
@@ -461,21 +466,32 @@
       default: return notFound();
     }
   }
-  window.addEventListener('hashchange', route);
+  window.addEventListener('popstate', route);
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href || a.target === '_blank' || a.hasAttribute('download')) return;
+    if (/^(https?:|mailto:|tel:)/i.test(href)) return;
+    if (href.charAt(0) === '#') return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault(); go(href);
+  });
   document.addEventListener('click', e => {
     const v = e.target.closest('[data-vcode]');
     if (v) { navigator.clipboard.writeText(v.dataset.vcode).then(() => toast('Đã sao chép mã ' + v.dataset.vcode)).catch(() => toast('Mã: ' + v.dataset.vcode)); return; }
     const b = e.target.closest('[data-add]'); if (!b) return;
     const p = byId(b.dataset.add);
-    if (p.models.length) location.hash = '#/san-pham/' + p.slug; else addToCart(p.id, 1);
+    if (p.models.length) go('/san-pham/' + p.slug); else addToCart(p.id, 1);
   });
-  $('#searchForm').onsubmit = e => { e.preventDefault(); const q = $('#searchInput').value.trim(); if (q) location.hash = '#/tim-kiem?q=' + encodeURIComponent(q); };
+  $('#searchForm').onsubmit = e => { e.preventDefault(); const q = $('#searchInput').value.trim(); if (q) go('/tim-kiem?q=' + encodeURIComponent(q)); };
 
   // ---------- Tiện ích ----------
   let toastT; function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200); }
   function lightbox(src) { const lb = $('#lightbox'); lb.querySelector('img').src = src; lb.hidden = false; }
   $('#lightbox').onclick = () => { $('#lightbox').hidden = true; };
 
+  if (location.hash.indexOf('#/') === 0) history.replaceState({}, '', location.hash.slice(1));
   app.innerHTML = '<div class="skeleton" style="margin:20px 0"></div><div class="grid">' + '<div class="skeleton"></div>'.repeat(5) + '</div>';
   loadData().then(route).catch(err => { app.innerHTML = `<div class="empty">Không tải được dữ liệu sản phẩm.<br><small>${esc(err.message)}</small></div>`; });
 })();
