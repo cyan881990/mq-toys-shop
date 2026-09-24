@@ -90,8 +90,9 @@
 
   // ---------- Thành phần ----------
   const stars = r => { const n = Math.round(r || 0); return `<span class="stars" title="${r}">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>`; };
-  const soldOut = p => p.stock !== null && p.stock !== undefined && p.stock <= 0;
-  const lowStock = p => p.stock !== null && p.stock !== undefined && p.stock > 0 && p.stock <= 5;
+  // Cửa hàng bán theo đặt hàng – không khoá theo tồn kho
+  const soldOut = () => false;
+  const lowStock = () => false;
   function card(p) {
     return `<article class="card${soldOut(p) ? ' card--out' : ''}">
       ${soldOut(p) ? '<span class="soldout">HẾT HÀNG</span>' : ''}
@@ -234,7 +235,7 @@
             ${p.rating ? `<span><b>${Number(p.rating).toFixed(1)}</b> ${stars(p.rating)}</span>` : ''}
             <a href="#danh-gia" class="meta-link" id="goReviews"><b>${p.ratingCount || p.reviews.length}</b> đánh giá</a>
             <span><b>${p.sold}</b> đã bán</span>
-            ${p.stock === null || p.stock === undefined ? '' : (p.stock > 0 ? `<span class="${p.stock <= 5 ? 'stock-low' : ''}">Còn <b>${p.stock}</b> sản phẩm</span>` : '<span class="stock-out">Tạm hết hàng</span>')}
+            <span class="stock-ok">Còn hàng</span>
           </div>
           ${voucherBanner()}
           <div class="pd__price"><span class="price" id="pdPrice">${priceRange}</span>${p.priceBefore ? `<span class="price--old">${fmt(p.priceBefore)}</span>` : ''}${p.discount ? `<span class="off">GIẢM ${p.discount}%</span>` : ''}</div>

@@ -319,6 +319,7 @@ input,select,textarea{font:inherit}
 .soldout{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-8deg);background:rgba(28,20,32,.82);color:#fff;font-weight:800;font-size:13px;padding:7px 16px;border-radius:8px;z-index:2;letter-spacing:1px}
 .card__add:disabled{opacity:.5;cursor:not-allowed;background:#f4f1f6;border-color:var(--line);color:var(--muted)}
 .stock-low{color:#d97706;font-weight:600}
+.stock-ok{color:#12a150;font-weight:600}
 .stock-out{color:var(--danger);font-weight:600}
 .stock-out-box{background:#fee2e2;color:#b91c1c;padding:13px 16px;border-radius:12px;font-weight:500;width:100%}
 @media(max-width:600px){ .vbanner__item{flex-wrap:wrap} .vbanner__copy{margin-left:0} }
