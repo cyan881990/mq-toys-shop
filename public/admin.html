@@ -4,14 +4,15 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Quản trị – M&Q Toys</title>
 <link rel="stylesheet" href="/styles.css">
+<link rel="icon" type="image/png" href="/img/icon.png">
 <style>
   body{padding:0}
   .adm{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
-  .side{background:#1f2328;color:#d1d5db;padding:20px 14px}
+  .side{background:#1C1420;color:#d1d5db;padding:20px 14px}
   .side .logo__text{color:#fff}
   .side nav{display:grid;gap:4px;margin-top:20px}
   .side nav button{text-align:left;border:0;background:none;color:#d1d5db;padding:10px 12px;border-radius:10px;font-weight:500}
-  .side nav button.active,.side nav button:hover{background:#374151;color:#fff}
+  .side nav button.active,.side nav button:hover{background:#3A2C42;color:#fff}
   .main{padding:22px 26px;background:var(--bg)}
   .login{max-width:380px;margin:80px auto}
   table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:var(--shadow);font-size:13.5px}
@@ -33,14 +34,14 @@
 </style>
 </head>
 <body>
-<div id="login" class="form login"><div class="logo" style="margin-bottom:14px"><span class="logo__mark">MQ</span><span class="logo__text">Quản trị</span></div>
+<div id="login" class="form login"><div style="text-align:center;margin-bottom:18px"><img src="/img/logo.png" alt="M&Q HOME TECH" style="height:64px"></div>
   <div id="loginSb"><div class="field"><label>Email</label><input id="email" type="email" autocomplete="username"></div><div class="field"><label>Mật khẩu</label><input id="pass" type="password" autocomplete="current-password"></div>
     <p class="sm">Tài khoản tạo trong Supabase → Authentication → Users → Add user.</p></div>
   <div id="loginNode" class="hidden"><div class="field"><label>Mã quản trị (ADMIN_KEY)</label><input id="key" type="password"></div></div>
   <button class="btn btn--block" id="loginBtn">Đăng nhập</button><p id="loginErr" style="color:var(--danger);font-size:13px"></p></div>
 
 <div id="adm" class="adm hidden">
-  <aside class="side"><div class="logo"><span class="logo__mark">MQ</span><span class="logo__text">M&amp;Q <b>Admin</b></span></div>
+  <aside class="side"><div style="text-align:center"><img src="/img/logo-white.png" alt="M&Q" style="height:46px"></div>
     <nav id="nav"><button data-v="dash" class="active">📊 Tổng quan</button><button data-v="orders">📦 Đơn hàng</button><button data-v="products">🧸 Sản phẩm</button><button data-v="customers">👥 Khách hàng</button><button data-v="reviews">⭐ Đánh giá</button><button data-v="settings">⚙️ Cài đặt</button><a href="/" style="padding:10px 12px;display:block">↩ Xem cửa hàng</a><button id="logout">🚪 Đăng xuất</button></nav></aside>
   <main class="main" id="view"></main>
 </div>
